@@ -110,6 +110,104 @@ tbody tr:hover { background: #f8fbf9; }
 .pagination span { min-width: 4rem; text-align: center; font-variant-numeric: tabular-nums; }
 footer { margin-top: 1rem; font-size: .83rem; line-height: 1.6; }
 
+.view-nav {
+  display: flex;
+  gap: .55rem;
+  margin-bottom: 1rem;
+}
+.view-nav button[aria-pressed="true"],
+.accent-button:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.view-nav button[aria-pressed="true"]:hover,
+.accent-button:not(:disabled):hover { background: #104f3d; }
+.section-intro { margin: 1.45rem 0 1rem; }
+.section-intro h2 { margin: 0 0 .45rem; font-size: 1.55rem; }
+.section-intro p { margin: 0; color: var(--ink-muted); line-height: 1.6; }
+.profile-panel { margin-bottom: 1rem; }
+.profile-panel > summary {
+  cursor: pointer;
+  padding: 1.05rem 1.4rem;
+  font-weight: 720;
+}
+.profile-panel[open] > summary { border-bottom: 1px solid var(--border); }
+#company-profile { display: grid; gap: 1rem; padding: 1.3rem 1.4rem; }
+.form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+.form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#company-profile label, .recommendation-filters label { font-size: .91rem; font-weight: 650; }
+#company-profile label > :is(input:not([type="checkbox"]), select, textarea),
+.recommendation-filters label > :is(input:not([type="checkbox"]), select) {
+  display: block;
+  width: 100%;
+  min-height: 2.65rem;
+  margin-top: .35rem;
+  padding: .55rem .65rem;
+  border: 1px solid #a5b8b1;
+  border-radius: .5rem;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+}
+#company-profile textarea { resize: vertical; }
+#company-profile small { display: block; margin-top: .35rem; color: var(--ink-muted); font-weight: 400; }
+#company-profile fieldset { min-width: 0; margin: 0; padding: .65rem .8rem .8rem; border: 1px solid var(--border); border-radius: .6rem; }
+#company-profile legend { padding: 0 .3rem; font-size: .93rem; font-weight: 700; }
+.form-note { margin: 0; font-size: .87rem; color: var(--ink-muted); line-height: 1.55; }
+.check-options { display: flex; flex-wrap: wrap; gap: .35rem .5rem; margin-top: .4rem; }
+.check-option, .check-control { display: inline-flex; align-items: center; gap: .4rem; cursor: pointer; }
+.check-option {
+  min-height: 2.45rem;
+  padding: .35rem .6rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: #f6f9f7;
+}
+.check-option:has(input:checked) { border-color: #3b846b; background: #e2f0e9; }
+input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); }
+.other-fields { margin: .7rem 0; }
+.other-fields summary, .score-guide summary, .recommendation-card summary { color: var(--accent); cursor: pointer; font-weight: 650; }
+#other-fields { display: grid; gap: .6rem; margin-top: .7rem; }
+.profile-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .55rem; }
+.recommendation-results { padding: 1.3rem 1.4rem; }
+.results-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .65rem; }
+.results-header h3 { margin: 0; }
+.score-guide { margin: .65rem 0 1rem; font-size: .9rem; }
+.score-guide p { margin: .5rem 0 0; color: var(--ink-muted); line-height: 1.6; }
+.recommendation-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: .7rem;
+  margin: 0 0 1.1rem;
+}
+.recommendation-filters .check-control { grid-column: 1 / -1; min-height: 2.1rem; }
+.coverage-note {
+  margin: 0 0 .7rem;
+  padding: .65rem .75rem;
+  border-radius: .45rem;
+  background: #fff2d5;
+  color: #5a4100;
+  font-size: .87rem;
+}
+.recommendation-list { display: grid; gap: .7rem; margin-top: .7rem; }
+.recommendation-card { padding: 1rem; border: 1px solid var(--border); border-radius: .7rem; }
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+.card-header h4 { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.score { flex: none; margin: 0; padding: .3rem .55rem; border-radius: .4rem; background: #e4f2eb; color: #145440; font-weight: 750; }
+.card-metadata { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem 1rem; margin: .65rem 0; }
+.card-metadata dt { color: var(--ink-muted); font-size: .8rem; }
+.card-metadata dd { margin: .18rem 0 0; font-size: .9rem; overflow-wrap: anywhere; }
+.card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem; margin-bottom: .65rem; }
+.eligibility { margin: 0; font-size: .87rem; color: var(--ink-muted); }
+.eligibility.caution { color: #873525; font-weight: 650; }
+.recommendation-card details { padding-top: .65rem; border-top: 1px solid var(--border); font-size: .9rem; }
+.recommendation-card details h5 { margin: .8rem 0 .3rem; font-size: .88rem; }
+.recommendation-card ul { margin: 0; padding-left: 1.2rem; line-height: 1.6; overflow-wrap: anywhere; }
+#more-recommendations { margin-top: .8rem; }
+
 @media (max-width: 38rem) {
   .layout { padding: 2rem 1rem 1.5rem; }
   .toolbar { flex-direction: column; padding: 1rem; }
@@ -117,4 +215,8 @@ footer { margin-top: 1rem; font-size: .83rem; line-height: 1.6; }
   .metadata, .status, .pagination { padding-inline: 1rem; }
   .notice { margin-inline: 1rem; }
   .table-hint { display: block; margin: 0 1rem .6rem; color: var(--ink-muted); font-size: .8rem; }
+  .profile-panel > summary, #company-profile, .recommendation-results { padding-inline: 1rem; }
+  .form-grid, .form-grid.two { grid-template-columns: minmax(0, 1fr); }
+  .recommendation-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

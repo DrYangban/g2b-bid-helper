@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
 
-from g2b import COLUMNS, KOREA_TIME, BidApiError, fetch_notices, load_service_key, recent_window
+from bid_conditions import NOTICE_TYPES, fetch_public_notices
+from g2b import KOREA_TIME, BidApiError, load_service_key, recent_window
 
 
 def main() -> int:
@@ -19,11 +20,14 @@ def main() -> int:
             raise BidApiError("G2B_SERVICE_KEY가 비어 있습니다. 저장소의 Actions Secret을 확인해 주세요.")
 
         start, end = recent_window()
-        notices = fetch_notices(service_key, start, end)
+        notices, coverage = fetch_public_notices(service_key, start, end)
         data = {
+            "schemaVersion": 2,
+            "noticeTypes": list(NOTICE_TYPES),
             "collectedAt": datetime.now(KOREA_TIME).isoformat(timespec="seconds"),
             "window": {"start": start.isoformat(), "end": end.isoformat()},
-            "notices": [{column: notice.get(column) for column in COLUMNS} for notice in notices],
+            "conditionCoverage": coverage,
+            "notices": notices,
         }
         snapshot = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         if service_key in unquote(snapshot):
@@ -39,6 +43,12 @@ def main() -> int:
         return 1
 
     print(f"나라장터 API 조회 성공. 용역 입찰공고 {len(notices):,}건을 저장했습니다.")
+    for name, label in (("regions", "참가가능지역"), ("licenses", "면허·업종 제한")):
+        detail = coverage[name]
+        if detail["status"] == "available":
+            print(f"{label} 자료 연결: 공고 {detail['matchedNotices']:,}건")
+        else:
+            print(f"{label} 부가 조회 미완료. 해당 조건은 확인 필요로 표시합니다.")
     return 0
 
 
