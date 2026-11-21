@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="최근 3일 나라장터 용역 입찰공고를 찾고 CSV로 저장하세요.">
+  <title>나라장터 AI 입찰 도우미</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="layout">
+    <header class="intro">
+      <h1>나라장터 AI 입찰 도우미</h1>
+      <p>한국시간으로 오늘과 앞선 이틀에 등록된 용역 입찰공고를 확인하세요.</p>
+    </header>
+
+    <section class="panel" aria-label="용역 입찰공고 검색 결과">
+      <div class="toolbar">
+        <div class="search-field">
+          <label for="keywords">공고명 키워드</label>
+          <input id="keywords" type="search" placeholder="콘텐츠, 영상, 홍보, SNS, 디자인"
+            aria-describedby="search-help" disabled>
+          <p id="search-help">쉼표나 공백으로 나눈 키워드 중 하나라도 제목에 있으면 표시됩니다.</p>
+        </div>
+        <button id="download" class="primary" type="button" disabled>검색 결과 CSV 저장</button>
+      </div>
+
+      <dl id="metadata" class="metadata" hidden>
+        <div><dt>등록일시 범위</dt><dd id="window"></dd></div>
+        <div><dt>마지막 수집</dt><dd id="collected-at"></dd></div>
+      </dl>
+      <p id="stale" class="notice" role="status" hidden>
+        마지막 수집 후 8시간이 넘었습니다. 아래에는 마지막으로 받은 공고가 표시됩니다.
+      </p>
+      <p id="status" class="status" role="status"></p>
+      <noscript><p class="notice">공고를 보려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+
+      <div id="table-wrap" class="table-wrap" role="region" aria-label="공고 표" tabindex="0" hidden>
+        <p class="table-hint">표를 좌우로 밀어 나머지 항목을 볼 수 있습니다.</p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">공고명</th>
+              <th scope="col">발주기관</th>
+              <th scope="col">입찰마감일</th>
+              <th scope="col" class="price">추정가격(원)</th>
+              <th scope="col">공고 상세 링크</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <nav id="pagination" class="pagination" aria-label="공고 결과 페이지" hidden>
+        <button id="previous" type="button">이전</button>
+        <span id="page-number" aria-live="polite"></span>
+        <button id="next" type="button">다음</button>
+      </nav>
+    </section>
+    <footer>출처 <a href="https://www.data.go.kr/data/15129394/openapi.do">공공데이터포털 · 조달청 나라장터 입찰공고정보서비스</a></footer>
+  </main>
+</body>
+</html>
