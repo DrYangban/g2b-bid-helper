@@ -1,4 +1,5 @@
-"use strict";
+import { cellValue, noticeLink, saveCsv } from "./bid-ui.js";
+import { mountRecommendations } from "./recommendation-view.js";
 
 const fields = [
   ["공고명", "title"],
@@ -25,26 +26,11 @@ const pagination = document.querySelector("#pagination");
 const previous = document.querySelector("#previous");
 const next = document.querySelector("#next");
 const pageNumber = document.querySelector("#page-number");
+const recommendations = mountRecommendations();
 
 let snapshot;
 let matches = [];
 let page = 0;
-
-function cellValue(notice, key) {
-  return typeof notice[key] === "string" ? notice[key] : "";
-}
-
-function detailUrl(value) {
-  try {
-    const url = new URL(value);
-    if (["http:", "https:"].includes(url.protocol) && !url.username && !url.password) {
-      return url.href;
-    }
-  } catch {
-    // 표시할 주소가 없거나 URL 형식이 잘못된 경우 빈칸으로 둔다.
-  }
-  return "";
-}
 
 function noticeRow(notice) {
   const row = document.createElement("tr");
@@ -53,15 +39,8 @@ function noticeRow(notice) {
     cell.className = column;
     const value = cellValue(notice, key);
     if (column === "detail") {
-      const url = detailUrl(value);
-      if (url) {
-        const link = document.createElement("a");
-        link.href = url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = "공고 보기";
-        cell.append(link);
-      }
+      const link = noticeLink(value, "공고 보기");
+      if (link) cell.append(link);
     } else if (column === "price") {
       cell.textContent = value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     } else {
@@ -103,27 +82,10 @@ function applySearch() {
   renderResults();
 }
 
-function csvCell(value) {
-  // 외부에서 받은 문자열을 Excel이 수식으로 해석하지 않도록 한다.
-  const text = /^[=+\-@＝＋－＠]/u.test(value.trimStart()) ? "'" + value : value;
-  return '"' + text.replaceAll('"', '""') + '"';
-}
-
 function downloadCsv() {
   const names = fields.map(([key]) => key);
-  const lines = [names.map(csvCell).join(",")];
-  for (const notice of matches) {
-    lines.push(names.map((key) => csvCell(cellValue(notice, key))).join(","));
-  }
-  const csv = new Blob(["\uFEFF", lines.join("\r\n"), "\r\n"], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(csv);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "나라장터_용역입찰공고_" + snapshot.collectedAt.slice(0, 10).replaceAll("-", "") + ".csv";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const filename = "나라장터_용역입찰공고_" + snapshot.collectedAt.slice(0, 10).replaceAll("-", "") + ".csv";
+  saveCsv(filename, names, matches.map((notice) => names.map((key) => cellValue(notice, key))));
 }
 
 async function loadNotices() {
@@ -132,6 +94,7 @@ async function loadNotices() {
     const response = await fetch("./data/bids.json", { cache: "no-cache" });
     if (response.status === 404) {
       status.textContent = "아직 게시된 공고 데이터가 없습니다. 첫 수집과 배포가 끝난 뒤 다시 확인해 주세요.";
+      recommendations.loadError();
       return;
     }
     if (!response.ok) {
@@ -156,8 +119,10 @@ async function loadNotices() {
     document.querySelector("#stale").hidden = Date.now() - collected.getTime() <= 8 * 60 * 60 * 1000;
     keywords.disabled = data.notices.length === 0;
     applySearch();
+    recommendations.setSnapshot(data);
   } catch {
     status.textContent = "공고를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.";
+    recommendations.loadError();
   }
 }
 
