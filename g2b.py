@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from itertools import count
 from pathlib import Path
+from time import monotonic
 from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree
 
@@ -12,10 +13,8 @@ import requests
 from dotenv import dotenv_values
 
 
-API_URL = (
-    "https://apis.data.go.kr/1230000/ad/BidPublicInfoService02/"
-    "getBidPblancListInfoServc02"
-)
+API_BASE = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService02/"
+API_URL = API_BASE + "getBidPblancListInfoServc02"
 KOREA_TIME = timezone(timedelta(hours=9))
 PAGE_SIZE = 100
 COLUMNS = ("공고명", "발주기관", "입찰마감일", "추정가격(원)", "공고 상세 링크")
@@ -158,7 +157,16 @@ def _notice(item: dict) -> Notice:
     }
 
 
-def fetch_notices(service_key: str, start: datetime, end: datetime) -> list[Notice]:
+def fetch_rows(
+    service_key: str,
+    start: datetime,
+    end: datetime,
+    *,
+    url: str = API_URL,
+    page_size: int = PAGE_SIZE,
+    max_pages: int | None = None,
+    time_limit: int | None = None,
+) -> list[dict]:
     if not timedelta(0) <= end - start < timedelta(days=7):
         raise BidApiError("조회기간은 7일 이내로 설정해 주세요.")
 
@@ -168,16 +176,19 @@ def fetch_notices(service_key: str, start: datetime, end: datetime) -> list[Noti
         "inqryDiv": "1",
         "inqryBgnDt": start.strftime("%Y%m%d%H%M"),
         "inqryEndDt": end.strftime("%Y%m%d%H%M"),
-        "numOfRows": PAGE_SIZE,
+        "numOfRows": page_size,
     }
-    notices = []
+    rows = []
     expected_total = None
+    started = monotonic()
 
     with requests.Session() as session:
         for page_number in count(1):
+            if (max_pages and page_number > max_pages) or (time_limit and monotonic() - started >= time_limit):
+                raise BidApiError("부가 조회에서 정해진 수집 범위를 초과했습니다.")
             try:
                 response = session.get(
-                    API_URL,
+                    url,
                     params={**params, "pageNo": page_number},
                     timeout=(5, 20),
                     allow_redirects=False,
@@ -190,11 +201,15 @@ def fetch_notices(service_key: str, start: datetime, end: datetime) -> list[Noti
             total, items = _read_page(response)
             if expected_total is None:
                 expected_total = total
-            notices.extend(_notice(item) for item in items)
-            if len(notices) >= expected_total:
-                return notices
+            rows.extend(items)
+            if len(rows) >= expected_total:
+                return rows
             if not items:
                 raise BidApiError("일부 결과를 받지 못했습니다. 공고를 다시 조회해 주세요.")
+
+
+def fetch_notices(service_key: str, start: datetime, end: datetime) -> list[Notice]:
+    return [_notice(item) for item in fetch_rows(service_key, start, end)]
 
 
 def filter_notices(notices: list[Notice], search: str) -> list[Notice]:
