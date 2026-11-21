@@ -30,7 +30,7 @@ jobs:
       - name: Prepare static website files
         run: |
           mkdir -p _site
-          cp site/index.html site/styles.css site/app.js _site/
+          cp site/index.html site/styles.css site/*.js _site/
       - name: Collect public bid notices
         env:
           G2B_SERVICE_KEY: ${{ secrets.G2B_SERVICE_KEY }}
