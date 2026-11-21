@@ -1,0 +1,120 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, "Malgun Gothic", sans-serif;
+  color: #192c2b;
+  background: #f2f6f4;
+  --ink-muted: #465c58;
+  --border: #d9e4df;
+  --accent: #14624c;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+a { color: var(--accent); text-underline-offset: .2em; }
+:focus-visible { outline: 3px solid #278968; outline-offset: 3px; }
+
+.layout {
+  max-width: 74rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.75rem 2rem;
+}
+
+.intro { margin-bottom: 2rem; }
+.intro h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 5vw, 2.7rem);
+  line-height: 1.2;
+  letter-spacing: -.035em;
+}
+.intro p, footer { color: var(--ink-muted); }
+.intro p { margin: .8rem 0 0; line-height: 1.65; }
+
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: #fff;
+}
+
+.toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.4rem 1.5rem;
+}
+.search-field { width: min(100%, 34rem); }
+.search-field label { display: block; margin-bottom: .55rem; font-weight: 700; }
+.search-field input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: .65rem .85rem;
+  border: 1px solid #9fb4ac;
+  border-radius: .55rem;
+  color: inherit;
+  background: #fff;
+}
+.search-field input:disabled { background: #f2f6f4; }
+.search-field p { margin: .5rem 0 0; color: var(--ink-muted); font-size: .85rem; line-height: 1.5; }
+
+button {
+  min-height: 2.75rem;
+  padding: .5rem .95rem;
+  border: 1px solid #9fb4ac;
+  border-radius: .55rem;
+  background: #fff;
+  color: #243d35;
+  font-weight: 650;
+}
+button:hover:not(:disabled) { background: #e9f3ee; }
+button:disabled { color: #586863; border-color: var(--border); background: #eef2f0; }
+.primary { margin-top: 1.8rem; background: var(--accent); border-color: var(--accent); color: #fff; }
+.primary:hover:not(:disabled) { background: #0d4c3a; }
+
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem 1.8rem;
+  margin: 0;
+  padding: .85rem 1.5rem;
+  border-block: 1px solid var(--border);
+  background: #f4f8f6;
+  color: var(--ink-muted);
+  font-size: .85rem;
+}
+.metadata div { display: flex; flex-wrap: wrap; gap: .25rem .5rem; }
+.metadata dt { font-weight: 700; }
+.metadata dd { margin: 0; word-break: keep-all; }
+.status { margin: 0; padding: 1rem 1.5rem; line-height: 1.55; color: var(--ink-muted); }
+.status:empty { display: none; }
+.notice { margin: .7rem 1.5rem 0; padding: .7rem .85rem; background: #fff2d5; color: #5a4100; border-radius: .45rem; }
+
+.table-wrap { overflow-x: auto; }
+.table-wrap:focus-visible { outline-offset: -3px; }
+.table-hint { display: none; }
+table { width: 100%; min-width: 50rem; border-collapse: collapse; font-size: .9rem; }
+thead { background: #edf4f1; }
+th, td { padding: .85rem 1rem; text-align: left; vertical-align: top; border-top: 1px solid var(--border); }
+th:first-child, td:first-child { padding-left: 1.5rem; }
+th:last-child, td:last-child { padding-right: 1.5rem; }
+th:not(:first-child), .deadline, .price, .detail { white-space: nowrap; }
+td.title { width: 40%; font-weight: 600; overflow-wrap: anywhere; }
+td.agency { min-width: 8.5rem; max-width: 14rem; word-break: keep-all; overflow-wrap: anywhere; }
+th.price, td.price { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: #f8fbf9; }
+.pagination { display: flex; align-items: center; justify-content: flex-end; gap: .8rem; padding: .8rem 1.5rem; border-top: 1px solid var(--border); }
+.pagination span { min-width: 4rem; text-align: center; font-variant-numeric: tabular-nums; }
+footer { margin-top: 1rem; font-size: .83rem; line-height: 1.6; }
+
+@media (max-width: 38rem) {
+  .layout { padding: 2rem 1rem 1.5rem; }
+  .toolbar { flex-direction: column; padding: 1rem; }
+  .primary { margin-top: 0; }
+  .metadata, .status, .pagination { padding-inline: 1rem; }
+  .notice { margin-inline: 1rem; }
+  .table-hint { display: block; margin: 0 1rem .6rem; color: var(--ink-muted); font-size: .8rem; }
+}
