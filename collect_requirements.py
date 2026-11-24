@@ -192,7 +192,7 @@ def choose_notices(bids, attachments, previous, now):
     candidates = []
     for notice in bids["notices"]:
         key = f"{notice.get('noticeId')}:{notice.get('revision')}"
-        if not KEY.fullmatch(key):
+        if not KEY.fullmatch(key) or "취소" in (notice.get("noticeKind") or ""):
             continue
         deadline = _clock(notice.get("입찰마감일"))
         if deadline and (deadline.replace(tzinfo=timezone(timedelta(hours=9))) if not deadline.tzinfo else deadline) <= now:

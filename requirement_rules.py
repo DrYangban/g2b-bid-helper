@@ -12,8 +12,8 @@ FIELDS = (
     "experience", "documents", "schedule", "evaluation", "joint_subcontract",
 )
 HEADINGS = {
-    "scope": r"(?:사업|과업|용역)(?:의)?\s*(?:목적|개요|범위|내용)|추진\s*(?:목적|배경)|주요\s*(?:과업|업무)",
-    "budget": r"사\s*업\s*(?:예산|비)|소요\s*예산|용역\s*(?:예정\s*금액|금액|비)|배정\s*예산|예산\s*(?:금액|액)|기초\s*금액|추정\s*(?:가격|금액)",
+    "scope": r"(?:사업|과업|용역)(?:의)?\s*(?:목적|개요|범위|내용|배경\s*및\s*목적)|추진\s*(?:목적|배경)|주요\s*(?:과업|업무)",
+    "budget": r"사\s*업\s*(?:예산|비)|소요\s*예산|용역\s*(?:예정\s*금액|금액|비)|과업\s*예정\s*액|배정\s*예산|예산\s*(?:금액|액)|기초\s*금액|추정\s*(?:가격|금액)",
     "period": r"(?:사업|용역|이행|과업|수행|계약)\s*기간|용역\s*기한|납품\s*기한",
     "eligibility": r"(?:입찰|응찰|제안)\s*(?:참가|참여)\s*자격|입찰\s*자격|신청\s*자격",
     "region_industry": r"지역\s*제한|업종\s*(?:제한|코드)|참가\s*가능\s*지역|소재지\s*제한",
@@ -29,13 +29,13 @@ HEAD = {key: re.compile(HEADING_PREFIX + "(" + pattern + r")(?=$|[ \t:：({\[])"
         for key, pattern in HEADINGS.items()}
 ANCHOR = {key: re.compile(pattern) for key, pattern in HEADINGS.items()}
 
-MONEY = re.compile(r"(?<![\d,])(?:금\s*)?([1-9]\d{0,2}(?:,\s*\d{3})+|[1-9]\d{0,13})\s*(?:(천|백만|억)\s*)?원(?![가-힣])")
+MONEY = re.compile(r"(?<![\d,])(?:금\s*)?([1-9]\d{0,2}(?:,\s*\d{3})+|[1-9]\d{0,13})\s*(?:(천|백만|억)\s*)?원(?:정)?(?![가-힣])")
 MONEY_KIND = ANCHOR["budget"]
 DATE = re.compile(r"(?<!\d)(20\d{2})\s*(?:년|[./-])\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})(?:일|\.)?(?!\d)")
 SHORT_DATE = re.compile(r"^\s*(\d{1,2})\s*(?:월|[./-])\s*(\d{1,2})(?:일|\.)?(?!\d)")
 TIME = re.compile(r"^\s*(?:\([월화수목금토일]\)|[월화수목금토일]요일)?[,\s]*(\d{1,2})\s*[:시]\s*(\d{2})(?:분)?(?!\d)")
 RANGE_SEPARATOR = re.compile(r"[~∼～]|부터")
-DURATION = re.compile(r"(?:계약\s*체결일|계약일|착수일|착수)\s*(?:로부터|부터)\s*(\d{1,4})\s*(개월|일|년)(?![가-힣])")
+DURATION = re.compile(r"(?:계약\s*체결일|계약\s*\(착수\)\s*일(?:\s*\(D\))?|계약일|착수일|착수)\s*(?:로부터|부터)\s*(\d{1,4})\s*(개월|일|년)(?![가-힣])")
 CODE = re.compile(r"(?:업종|등록)\s*(?:코드|번호)\s*[:：(\s]*([0-9]{4})(?!\d)")
 EXPERIENCE = re.compile(r"최근\s*(\d{1,2})\s*년\s*(?:이내|이상|간)")
 EXPERIENCE_COUNT = re.compile(r"(\d{1,3})\s*건\s*이상")
@@ -202,7 +202,8 @@ def _candidates(field, text):
         matches = sorted((match.start(), kind, match.end()) for kind, pattern in SCHEDULES.items()
                          if (match := re.search(pattern, text)))
         for index, (_, kind, end) in enumerate(matches):
-            tail = text[end:matches[index + 1][0] if index + 1 < len(matches) else None]
+            boundary = next((start for start, _, _ in matches[index + 1:] if start >= end), None)
+            tail = text[end:boundary]
             dates = _dates(tail[:120])
             if len(dates) == 1 and not RANGE_SEPARATOR.search(tail) and ("기간" not in text[:end] or re.search(r"마감|종료", text[:end])):
                 yield kind, dates[0]
