@@ -92,6 +92,14 @@ class RulesTest(unittest.TestCase):
             "period": [("endDate", "2027-02-28")], "joint_subcontract": [("joint", "prohibited")],
         })
 
+    def test_scope_uses_work_heading_instead_of_incidental_citation(self):
+        result = summarize_documents([parts(
+            "본 사업은 소프트웨어진흥법에 따라 과업내용 확정을 위해 심의한다.",
+            "□ 사 업 명 : 2027년 정보화시스템 통합유지관리",
+        )])
+        self.assertEqual(result["scope"]["findings"],
+                         [{"type": "topic", "value": "it", "at": [{"doc": 0, "paragraph": 2}]}])
+
 
 class IndexTest(unittest.TestCase):
     def setUp(self):

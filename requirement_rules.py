@@ -6,7 +6,7 @@ import re
 import unicodedata
 
 
-RULE_VERSION = 1
+RULE_VERSION = 2
 FIELDS = (
     "scope", "budget", "period", "eligibility", "region_industry", "licenses",
     "experience", "documents", "schedule", "evaluation", "joint_subcontract",
@@ -50,7 +50,7 @@ TOPICS = {
     "research": r"연구|조사|교육|연수|컨설팅",
     "engineering": r"설계|감리|측량|안전진단|건설사업관리",
 }
-TOPIC_HEADER = r"(?:사업|용역|과업|입찰)\s*(?:건\s*)?명|공고\s*명|건\s*명|주요\s*(?:업무|과업)|과업\s*내용"
+TOPIC_HEADER = re.compile(HEADING_PREFIX + r"((?:(?:사\s*업|용\s*역|과\s*업|입찰)\s*(?:건\s*)?명|공\s*고\s*명|건\s*명)(?=$|\s*[:：])|(?:주요\s*(?:업무|과업)|과업\s*내용)(?=$|[\s:：]))")
 QUALIFICATIONS = {
     "local": r"(?:지방계약법|지방자치단체를\s*당사자로\s*하는\s*계약에\s*관한\s*법률)\s*시행령\s*제\s*13\s*조",
     "national": r"(?:국가계약법|국가를\s*당사자로\s*하는\s*계약에\s*관한\s*법률)\s*시행령\s*제\s*12\s*조",
@@ -147,8 +147,8 @@ def _matching_labels(patterns, text):
 
 def _candidates(field, text):
     if field == "scope":
-        if re.search(TOPIC_HEADER, text):
-            yield from (("topic", label) for label in _matching_labels(TOPICS, text))
+        if title := TOPIC_HEADER.match(text):
+            yield from (("topic", label) for label in _matching_labels(TOPICS, text[title.end():]))
     elif field == "budget":
         labels = list(MONEY_KIND.finditer(text))
         for index, label in enumerate(labels):
@@ -240,6 +240,7 @@ def summarize_documents(parsed_documents):
         for index, (line, position) in enumerate(rows):
             location = {"doc": doc, **position}
             headings = {field: HEAD[field].match(line) for field in FIELDS}
+            headings["scope"] = TOPIC_HEADER.match(line) or headings["scope"]
             if headings["documents"]:
                 docs_context = 7
             elif any(match for field, match in headings.items() if field not in {"licenses", "eligibility"}):
@@ -247,7 +248,7 @@ def summarize_documents(parsed_documents):
             for field, output in fields.items():
                 anchored = bool(ANCHOR[field].search(line))
                 if field == "scope":
-                    anchored |= bool(re.match(HEADING_PREFIX + "(?:" + TOPIC_HEADER + r")\s*[:：]", line))
+                    anchored |= headings["scope"] is not None
                 if field == "eligibility":
                     anchored |= any(_matching_labels(QUALIFICATIONS, line))
                 if field == "region_industry":
