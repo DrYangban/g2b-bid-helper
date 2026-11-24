@@ -2,6 +2,11 @@ name: 나라장터 공고 갱신 및 사이트 배포
 
 on:
   workflow_dispatch:
+    inputs:
+      fresh_requirements:
+        description: 이전 요건 결과를 재사용하지 않고 표본을 다시 읽기
+        type: boolean
+        default: false
   schedule:
     # 한국시간 매일 00:17, 06:17, 12:17, 18:17
     - cron: '17 3,9,15,21 * * *'
@@ -52,12 +57,18 @@ jobs:
         timeout-minutes: 5
         env:
           G2B_SERVICE_KEY: ${{ secrets.G2B_SERVICE_KEY }}
+        run: python collect_attachments.py _site/data/bids.json _site/data/attachments.json
+      - name: Test attachment and requirement rules
+        run: python -m unittest test_attachments test_requirements
+      - name: Prepare public requirement findings
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          FRESH_REQUIREMENTS: ${{ inputs.fresh_requirements || false }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            python collect_attachments.py _site/data/bids.json _site/data/attachments.json --sample
-          else
-            python collect_attachments.py _site/data/bids.json _site/data/attachments.json
-          fi
+          options=()
+          if [ "$FRESH_REQUIREMENTS" = true ]; then options+=(--fresh); fi
+          python collect_requirements.py _site/data/bids.json _site/data/attachments.json _site/data/requirements.json "${options[@]}"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

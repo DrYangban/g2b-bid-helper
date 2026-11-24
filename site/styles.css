@@ -208,6 +208,18 @@ input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; accent-color: var
 .recommendation-card ul { margin: 0; padding-left: 1.2rem; line-height: 1.6; overflow-wrap: anywhere; }
 #more-recommendations { margin-top: .8rem; }
 .attachment-button { min-height: 2.15rem; padding: .2rem .6rem; font-size: .86rem; }
+.notice-document-actions { display: inline-flex; flex-wrap: wrap; gap: .38rem; white-space: normal; }
+.requirement-button { font-weight: 700; }
+.requirement-notice-title { font-weight: 650; overflow-wrap: anywhere; margin: .65rem 0; }
+.requirement-status { font-size: 1rem; font-weight: 700; }
+.requirement-dialog { width: min(48rem, calc(100% - 1.5rem)); }
+.requirement-fields { margin-top: .5rem; }
+.requirement-field { border-block-start: 1px solid var(--border); padding: .75rem 0; }
+.requirement-field h3, .requirement-field p { margin: .2rem 0; }
+.requirement-fact { font-weight: 600; }
+.requirement-sources { margin: .25rem 0 .65rem; padding-inline-start: 1.1rem; font-size: .87rem; overflow-wrap: anywhere; }
+.requirement-documents { padding: .55rem 0; }
+.requirement-documents summary { cursor: pointer; }
 .attachment-dialog {
   width: min(44rem, calc(100% - 1.6rem));
   max-height: min(88vh, 54rem);
