@@ -2,6 +2,16 @@
 
 브라우저에서 최근 3일의 나라장터 용역 입찰공고를 검색하고 CSV로 저장할 수 있습니다. GitHub Actions가 공고를 수집하고, GitHub Pages가 웹 화면과 공고 데이터 파일을 게시합니다. 사이트를 열 때는 주소만 있으면 됩니다.
 
+## AI 공고문 분석 데모
+
+검색과 맞춤 추천에서 **AI 공고문 분석**을 열면 승인된 첨부에 한해 원본을 브라우저에서 읽고, 검토된 발췌를 지정된 Cloudflare Worker에 보냅니다. 최초 이용 때 데모 접근 코드가 필요합니다. 보고서는 필수·선택·조건부·참고를 구분하고, 항목마다 확인된 원문 발췌와 위치를 표시합니다. 회사 프로필은 이 요청에 포함되지 않습니다.
+
+`ai-worker/wrangler.jsonc`의 배포 대상은 기존 `g2b-bid-helper-ai`입니다. Worker는 Production Secret의 기존 `GEMINI_API_KEY`와 별도의 `DEMO_ACCESS_CODE`를 사용합니다. 키의 Google AI Studio 프로젝트가 Free 등급이고 청구 전환이 없는 것을 확인한 경우에만 Worker 변수 `AI_FREE_TIER_CONFIRMED`를 `true`로 설정합니다. Workers Free와 SQLite Durable Objects Free를 사용합니다. Gemini 모델은 `gemini-3.1-flash-lite`이며 다른 모델이나 유료 옵션으로 전환하는 로직은 없습니다. 일반 입력·출력에 무료 등급이 있고 실제 할당량은 프로젝트의 AI Studio에서 확인합니다. [Gemini 가격표](https://aistudio.google.com/docs/pricing#gemini-3.1-flash-lite) · [프로젝트 할당량](https://aistudio.google.com/rate-limit) · [Cloudflare 무료 한도](https://developers.cloudflare.com/workers/platform/pricing/)
+
+Google 무료 서비스가 입력과 출력을 서비스 개선에 사용할 수 있으므로 공개 원문이라도 일반 이용조건만으로 첨부파일을 등록하지 않습니다. 발주기관이 허락한 내용에서 개인정보가 없는 발췌만 검토한 뒤 `ai-worker/approved-notices.mjs`에 공고번호·차수, 공식 파일 URL, 형식, 원문 위치, 발췌 범위, SHA-256 및 허락 근거를 등록합니다. 해시는 `site/ai-approval.js`의 `selectApprovedExcerpts`와 `excerptDigest`로 계산합니다. Worker는 등록 해시와 일치하는 발췌만 받으며, 보고서에는 일부 범위라고 표시합니다. [Gemini 무료 서비스 약관](https://aistudio.google.com/docs/terms#unpaid-services)
+
+동시 분석은 전체 1건, 신규 호출은 분당 1회와 최근 24시간 6회로 제한합니다. 발췌는 18,000자, 요청 본문은 72,000바이트까지입니다. 같은 공고·차수와 동일 발췌의 결과는 24시간 동안 재사용합니다. 입력 전문은 Durable Object에 보관하지 않습니다. 로컬 API 테스트는 `node --test ai-worker/worker.test.mjs`로 실행합니다.
+
 ## 필요 요건 확인
 
 공고 검색이나 맞춤 추천에서 **필요 요건 확인**을 눌러 보세요. 사전 분석된 공고는 결과를 바로 보여 줍니다. **미분석** 공고는 브라우저가 나라장터에서 원본을 가져와 텍스트를 읽고, 요건을 정리하는 진행 상태를 표시합니다. 목록의 **사전 분석된 공고만**을 선택하면 완료 또는 일부 처리 결과가 있는 공고를 모아 볼 수 있습니다.
