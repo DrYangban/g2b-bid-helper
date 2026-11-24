@@ -6,7 +6,7 @@ import re
 import unicodedata
 
 
-RULE_VERSION = 2
+RULE_VERSION = 3
 FIELDS = (
     "scope", "budget", "period", "eligibility", "region_industry", "licenses",
     "experience", "documents", "schedule", "evaluation", "joint_subcontract",
@@ -19,7 +19,7 @@ HEADINGS = {
     "region_industry": r"지역\s*제한|업종\s*(?:제한|코드)|참가\s*가능\s*지역|소재지\s*제한",
     "licenses": r"면허\s*(?:조건|요건|등록)|인증\s*(?:조건|요건)|직접\s*생산\s*확인|소기업.{0,8}확인서|중소기업.{0,8}확인서",
     "experience": r"(?:유사(?:\s*사업)?|수행|용역|이행|납품|동종)\s*(?:수행\s*)?실적",
-    "documents": r"제출\s*(?:서류|자료|목록)|구비\s*서류|필수\s*서류|제안서\s*구비",
+    "documents": r"필수\s*(?:제출\s*)?서류|제출\s*(?:서류|자료|목록)|구비\s*서류|제안서\s*구비",
     "schedule": r"입찰\s*일정|제안서.{0,20}?(?:제출|접수)|입찰서\s*(?:제출|접수)|입찰\s*마감|투찰\s*(?:마감|기간)|개찰\s*(?:일시|일정|일)",
     "evaluation": r"평가\s*(?:기준|항목|방법|배점)|기술\s*(?:능력)?\s*평가|입찰\s*가격\s*평가",
     "joint_subcontract": r"공동\s*(?:수급|도급|계약|이행)|컨소시엄|하\s*도\s*급",
@@ -78,6 +78,14 @@ DOCUMENTS = {
     "agent": r"위임장", "pledge": r"청렴\s*(?:계약\s*)?(?:이행\s*)?서약서", "references": r"실적\s*증명서",
     "direct": CERTIFICATES["direct"], "small": CERTIFICATES["small"], "sme": CERTIFICATES["sme"],
 }
+REQUIRED_DOCUMENT_HEADING = re.compile(HEADING_PREFIX + r"필수\s*(?:제출\s*)?서류(?=$|[\s:：({\[])")
+CONDITIONAL_DOCUMENT = re.compile(
+    r"해당\s*(?:시|자|업체|하는\s*경우|되는\s*경우|자만)|경우(?:에만)?|생략|면제|선택|예시|"
+    r"필요\s*시|대리인|요청\s*시|납부\s*대상자|제출\s*(?:불요|제외|하지\s*않|할\s*수\s*있)"
+)
+EXPLICIT_DOCUMENT_DUTY = re.compile(
+    r"반드시.{0,42}제출|제출\s*(?:하여야|해야|하시기|필수|의무)|필수로.{0,18}제출"
+)
 JOINT = {
     "joint": r"공동\s*(?:수급|도급|계약|이행)(?:\s*체)?|컨소시엄",
     "subcontract": r"하\s*도\s*급",
@@ -93,11 +101,11 @@ WEIGHTS = {
     "price": r"(?:입찰\s*)?가격\s*평가",
 }
 ENUMS = {"topic": TOPICS, "region": REGIONS, "qualification": QUALIFICATIONS,
-         "certificate": CERTIFICATES, "document": DOCUMENTS}
+         "certificate": CERTIFICATES, "document": DOCUMENTS, "requiredDocument": DOCUMENTS}
 ATTRS = {
     "scope": ("topic",), "budget": ("budget", "estimate", "base"), "period": ("duration", "dateRange", "endDate"),
     "eligibility": ("qualification",), "region_industry": ("region", "industryCode"), "licenses": ("certificate",),
-    "experience": ("experienceYears", "experienceCount"), "documents": ("document",),
+    "experience": ("experienceYears", "experienceCount"), "documents": ("document", "requiredDocument"),
     "schedule": tuple(SCHEDULES), "evaluation": tuple(WEIGHTS), "joint_subcontract": tuple(JOINT),
 }
 SINGLE = {"budget", "estimate", "base", "duration", "dateRange", "endDate", *SCHEDULES, *JOINT}
@@ -145,7 +153,7 @@ def _matching_labels(patterns, text):
     return (label for label, pattern in patterns.items() if re.search(pattern, text))
 
 
-def _candidates(field, text):
+def _candidates(field, text, required_section=False):
     if field == "scope":
         if title := TOPIC_HEADER.match(text):
             yield from (("topic", label) for label in _matching_labels(TOPICS, text[title.end():]))
@@ -195,7 +203,10 @@ def _candidates(field, text):
         names = set(_matching_labels(DOCUMENTS, text))
         if "priceProposal" in names and not re.search(r"(?:기술\s*|정성\s*|정량\s*|사업\s*)제안서|제안서\s*(?:[1-9]|및)", text):
             names.discard("proposal")
-        yield from (("document", label) for label in DOCUMENTS if label in names)
+        mandatory = not CONDITIONAL_DOCUMENT.search(text) and (
+            required_section or len(names) == 1 and EXPLICIT_DOCUMENT_DUTY.search(text)
+        )
+        yield from (("requiredDocument" if mandatory else "document", label) for label in DOCUMENTS if label in names)
     elif field == "schedule":
         if re.search(r"접수\s*(?:개시|시작)|제출\s*(?:개시|시작)|입찰\s*공고일|재입찰", text):
             return
@@ -237,14 +248,19 @@ def summarize_documents(parsed_documents):
     for doc, parsed in enumerate(parsed_documents):
         rows = list(_rows(parsed.get("parts", [])))
         docs_context = 0
+        required_heading = None
         for index, (line, position) in enumerate(rows):
             location = {"doc": doc, **position}
             headings = {field: HEAD[field].match(line) for field in FIELDS}
             headings["scope"] = TOPIC_HEADER.match(line) or headings["scope"]
             if headings["documents"]:
                 docs_context = 7
+                required_heading = location if REQUIRED_DOCUMENT_HEADING.match(line) else None
             elif any(match for field, match in headings.items() if field not in {"licenses", "eligibility"}):
                 docs_context = 0
+                required_heading = None
+            if CONDITIONAL_DOCUMENT.search(line):
+                required_heading = None
             for field, output in fields.items():
                 anchored = bool(ANCHOR[field].search(line))
                 if field == "scope":
@@ -258,15 +274,17 @@ def summarize_documents(parsed_documents):
                 if field == "experience":
                     anchored |= bool(re.search(r"실적.{0,16}\d+\s*건\s*이상", line))
                 if field == "documents":
-                    anchored |= docs_context > 0 or bool(re.search(r"제출(?:하여|해야|하시|할|기한)|제출\s*:", line))
+                    anchored |= docs_context > 0 or bool(EXPLICIT_DOCUMENT_DUTY.search(line)) or bool(
+                        re.search(r"제출(?:하여|해야|하시|할|기한)|제출\s*:", line))
                 if not anchored:
                     continue
-                immediate = list(_candidates(field, line))
+                required_section = field == "documents" and docs_context > 0 and required_heading is not None
+                immediate = list(_candidates(field, line, required_section))
                 evidence = location
                 heading = headings[field]
                 if not immediate and heading and index + 1 < len(rows) and re.fullmatch(r"[\s:：.()]*", line[heading.end():]):
                     next_line, next_location = rows[index + 1]
-                    immediate = list(_candidates(field, line + " : " + next_line))
+                    immediate = list(_candidates(field, line + " : " + next_line, required_section))
                     if immediate:
                         evidence = {"doc": doc, **next_location}
                 references = output["references"]
@@ -274,13 +292,25 @@ def summarize_documents(parsed_documents):
                     references.append(location)
                 for kind, value in immediate:
                     existing = next((item for item in output["findings"] if item["type"] == kind and item["value"] == value), None)
+                    locations = [evidence]
+                    if kind == "requiredDocument" and required_section and required_heading != evidence:
+                        locations.append(required_heading)
                     if existing:
                         if evidence not in existing["at"] and len(existing["at"]) < 2:
                             existing["at"].append(evidence)
-                    elif len(output["findings"]) < FINDINGS_LIMIT:
-                        output["findings"].append({"type": kind, "value": value, "at": [evidence]})
+                    else:
+                        if kind == "requiredDocument" and len(output["findings"]) >= FINDINGS_LIMIT:
+                            mention = next((i for i, item in enumerate(output["findings"]) if item["type"] == "document"), None)
+                            if mention is not None:
+                                output["findings"].pop(mention)
+                        if len(output["findings"]) < FINDINGS_LIMIT:
+                            output["findings"].append({"type": kind, "value": value, "at": locations})
             docs_context = max(0, docs_context - 1)
     for key, output in fields.items():
+        if key == "documents":
+            required = {item["value"] for item in output["findings"] if item["type"] == "requiredDocument"}
+            output["findings"] = [item for item in output["findings"]
+                                  if item["type"] == "requiredDocument" or item["value"] not in required]
         if key == "schedule":
             timed = {(item["type"], item["value"][:10]) for item in output["findings"] if len(item["value"]) > 10}
             output["findings"] = [item for item in output["findings"]
