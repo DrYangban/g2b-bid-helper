@@ -1,5 +1,6 @@
 import { cellValue, noticeLink, saveCsv } from "./bid-ui.js";
 import { mountRecommendations } from "./recommendation-view.js";
+import { attachmentButton, setAttachmentSnapshot } from "./attachment-view.js";
 
 const fields = [
   ["공고명", "title"],
@@ -47,6 +48,9 @@ function noticeRow(notice) {
       cell.textContent = value;
     }
   }
+  const attachments = row.insertCell();
+  attachments.className = "detail";
+  attachments.append(attachmentButton(notice));
   return row;
 }
 
@@ -112,6 +116,7 @@ async function loadNotices() {
 
     const [start, end, collected] = dates.map((value) => new Date(value));
     snapshot = data;
+    setAttachmentSnapshot(data);
     document.querySelector("#window").textContent = koreaDateTime.format(start) + " ~ " +
       koreaDateTime.format(end) + " (한국시간)";
     document.querySelector("#collected-at").textContent = koreaDateTime.format(collected);

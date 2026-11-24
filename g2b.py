@@ -166,6 +166,7 @@ def fetch_rows(
     page_size: int = PAGE_SIZE,
     max_pages: int | None = None,
     time_limit: int | None = None,
+    extra_params: dict | None = None,
 ) -> list[dict]:
     if not timedelta(0) <= end - start < timedelta(days=7):
         raise BidApiError("조회기간은 7일 이내로 설정해 주세요.")
@@ -177,6 +178,7 @@ def fetch_rows(
         "inqryBgnDt": start.strftime("%Y%m%d%H%M"),
         "inqryEndDt": end.strftime("%Y%m%d%H%M"),
         "numOfRows": page_size,
+        **(extra_params or {}),
     }
     rows = []
     expected_total = None
