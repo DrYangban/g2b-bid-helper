@@ -185,9 +185,9 @@ def _candidates(field, text):
     elif field == "licenses":
         yield from (("certificate", label) for label in _matching_labels(CERTIFICATES, text))
     elif field == "experience":
-        if match := EXPERIENCE.search(text):
+        if (match := EXPERIENCE.search(text)) and int(match[1]) > 0:
             yield "experienceYears", int(match[1])
-        if match := EXPERIENCE_COUNT.search(text):
+        if (match := EXPERIENCE_COUNT.search(text)) and int(match[1]) > 0:
             yield "experienceCount", int(match[1])
     elif field == "documents":
         if re.search(r"(?:제출|접수)\s*(?:기간|일정|일시|기한|마감)", text) and not ANCHOR["documents"].search(text):

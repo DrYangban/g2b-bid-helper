@@ -55,6 +55,7 @@ class RulesTest(unittest.TestCase):
     def test_ambiguous_fields_and_conflicts(self):
         rules = summarize_documents([
             parts("공동수급 허용 여부", "하도급 계획 서식 예시", "사업 목적", "입찰공고일: 2026. 11. 24.",
+                  "유사사업 수행실적 최근 0년 이내 0건 이상",
                   "제안서 제출일: 2026. 02. 30.", "사업예산: 10,000원"),
             parts("사업예산 20,000원", "추정가격: 9,000원"),
         ])
@@ -65,6 +66,7 @@ class RulesTest(unittest.TestCase):
         self.assertEqual({x["value"] for x in rules["budget"]["findings"]}, {9000, 10000, 20000})
         self.assertEqual(rules["scope"]["status"], "located")
         self.assertEqual(rules["licenses"]["status"], "missing")
+        self.assertFalse(rules["experience"]["findings"])
 
     def test_egress_validator_rejects_text_and_cross_document_positions(self):
         result = summarize_documents([parts("사업예산: 1,000원")])
@@ -96,7 +98,7 @@ class IndexTest(unittest.TestCase):
         self.now = datetime(2026, 11, 24, tzinfo=timezone.utc)
         self.bids = {"collectedAt": self.now.isoformat(), "notices": [
             {"noticeId": "R26BK01800001", "revision": "000", "공고명": "시스템 운영", "입찰마감일": "2026-12-01 10:00"},
-            {"noticeId": "R26BK01800001", "revision": "001", "공고명": "시설 청소", "입찰마감일": "2026-12-02 10:00"},
+            {"noticeId": "R26BK01800001", "revision": "001", "공고명": None, "입찰마감일": "2026-12-02 10:00"},
             {"noticeId": "R26BK01800002", "revision": "000", "공고명": "마감 파일", "입찰마감일": "2026-11-23 10:00"},
         ]}
         self.keys = ("R26BK01800001:000", "R26BK01800001:001", "R26BK01800002:000")

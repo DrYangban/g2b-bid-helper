@@ -200,7 +200,7 @@ def choose_notices(bids, attachments, previous, now):
         selected, signature, omitted = _select_files(attachments.get(key, []))
         if not selected:
             continue
-        title = notice.get("공고명", "")
+        title = notice.get("공고명") or ""
         topic = next((name for name, pattern in TOPICS.items() if re.search(pattern, title)), "other")
         cached = _cached(previous.get(key), signature, selected, omitted, now)
         candidates.append((key, selected, signature, omitted, topic, cached))
