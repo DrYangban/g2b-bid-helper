@@ -1,6 +1,7 @@
 import { cellValue, noticeLink, saveCsv } from "./bid-ui.js";
-import { mountRecommendations } from "./recommendation-view.js?v=3a2";
+import { mountRecommendations } from "./recommendation-view.js?v=4a1";
 import { attachmentButton, setAttachmentSnapshot } from "./attachment-view.js?v=3a2";
+import { requirementButton, setRequirementSnapshot } from "./requirement-view.js?v=4a1";
 
 const fields = [
   ["공고명", "title"],
@@ -50,7 +51,10 @@ function noticeRow(notice) {
   }
   const attachments = row.insertCell();
   attachments.className = "detail";
-  attachments.append(attachmentButton(notice));
+  const actions = document.createElement("div");
+  actions.className = "notice-document-actions";
+  actions.append(requirementButton(notice), attachmentButton(notice));
+  attachments.append(actions);
   return row;
 }
 
@@ -117,6 +121,7 @@ async function loadNotices() {
     const [start, end, collected] = dates.map((value) => new Date(value));
     snapshot = data;
     setAttachmentSnapshot(data);
+    setRequirementSnapshot(data);
     document.querySelector("#window").textContent = koreaDateTime.format(start) + " ~ " +
       koreaDateTime.format(end) + " (한국시간)";
     document.querySelector("#collected-at").textContent = koreaDateTime.format(collected);
