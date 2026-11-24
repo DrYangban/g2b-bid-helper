@@ -3,6 +3,7 @@ import { prepareNotices, priceRange, rankNotices, splitPreferences } from "./rec
 import { cellValue, detailUrl, noticeLink, saveCsv } from "./bid-ui.js";
 import { attachmentButton } from "./attachment-view.js?v=5b1";
 import { hasPublishedRequirements, requirementButton } from "./requirement-view.js?v=5b1";
+import { aiReportButton } from "./ai-report.js?v=6b1";
 
 const storageKey = "g2b-bid-helper:company-profile:v1";
 const textFields = ["company", "region", "district", "customFields", "keywords", "min", "max", "licenses", "experience"];
@@ -81,7 +82,7 @@ function recommendationCard(result) {
   condition.append(element("p", "참가 자격 · " + eligibility, excluded || eligibility.includes("불일치") ? "eligibility caution" : "eligibility"));
   const originalLink = noticeLink(cellValue(notice, "공고 상세 링크"), "공고 원문 열기");
   if (originalLink) condition.append(originalLink);
-  condition.append(requirementButton(notice), attachmentButton(notice));
+  condition.append(requirementButton(notice), aiReportButton(notice), attachmentButton(notice));
   const details = document.createElement("details");
   details.append(
     element("summary", "추천 이유 및 조건 확인"),

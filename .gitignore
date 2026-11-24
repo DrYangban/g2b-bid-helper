@@ -7,3 +7,7 @@ __pycache__/
 /_site/
 /g2b-github-upload.zip
 /.attachment-private/
+/.wrangler/
+/ai-worker/.wrangler/
+.dev.vars
+.dev.vars.*

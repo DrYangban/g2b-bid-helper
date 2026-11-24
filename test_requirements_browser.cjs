@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
 const { chromium } = require(process.env.G2B_QA_NODE_MODULES
   ? path.join(process.env.G2B_QA_NODE_MODULES, "playwright") : "playwright");
 
@@ -65,6 +66,14 @@ const server = http.createServer(async (request,response) => {
     const traffic = [];
     const errors = [];
     const requestErrors = [];
+    const aiOrigin = "https://g2b-bid-helper-ai.kupaksa.workers.dev";
+    const aiText = documentText.split("\n")[0];
+    const aiDoc = {
+      ...txt("valid"), id:"d1", segments:[{location:{line:1},start:0,end:aiText.length}],
+      sha256:createHash("sha256").update(JSON.stringify([aiText])).digest("hex"),
+    };
+    const aiDemoCode = "testing-access-000";
+    let aiPosts = 0;
     let outside = 0;
     page.on("pageerror",error => errors.push(error.message));
     page.on("request",request => traffic.push([request.method(),request.url(),request.postData()]));
@@ -80,6 +89,27 @@ const server = http.createServer(async (request,response) => {
       }
       await new Promise(resolve => setTimeout(resolve,200));
       return route.fulfill({status:200,headers,body:documentText});
+    });
+    await page.route(/^https:\/\/g2b-bid-helper-ai\.kupaksa\.workers\.dev\/v1\//, async (route) => {
+      const request = route.request();
+      const headers = {
+        "Access-Control-Allow-Origin":"*",
+        "Access-Control-Allow-Headers":"content-type, authorization",
+        "Access-Control-Allow-Methods":"GET, POST, OPTIONS",
+      };
+      if (request.method()==="OPTIONS") return route.fulfill({headers,status:204});
+      if (new URL(request.url()).pathname==="/v1/approval") {
+        const accepted = new URL(request.url()).searchParams.get("notice")===testKey(3);
+        return route.fulfill({headers,status:accepted?200:404,
+          json:accepted?{documents:[aiDoc],partial:true}:{error:"not_approved"}});
+      }
+      aiPosts++;
+      assert.equal(request.method(),"POST");
+      assert.equal(request.headers().authorization,"Bearer "+aiDemoCode);
+      assert.deepEqual(request.postDataJSON(),{notice:testKey(3),documents:[{id:"d1",texts:[aiText]}]});
+      return route.fulfill({headers,json:{mode:"live",partial:true,sections:{budget:[{type:"information",
+        summary:"사업예산은 375만 원입니다.",basis:[{filename:aiDoc.filename,sourceUrl:aiDoc.sourceUrl,
+          location:{line:1},quote:aiText}]}]}}});
     });
     await page.goto(url);
     const dialog = page.getByRole("dialog",{name:"필요 요건 확인",exact:true});
@@ -127,6 +157,21 @@ const server = http.createServer(async (request,response) => {
     await dialog.getByText("브라우저 처리 완료",{exact:true}).waitFor();
     assert.equal(outside,priorOutside);
     await close();
+    const openAi = index => page.getByRole("row",{name:new RegExp(names[index])}).getByRole("button",{name:"AI 공고문 분석",exact:true}).click();
+    const aiDialog = page.getByRole("dialog",{name:"AI 공고문 분석",exact:true});
+    const closeAi = () => aiDialog.getByRole("button",{name:"닫기",exact:true}).click();
+    await openAi(0);
+    await aiDialog.getByText(/외부 AI 이용이 확인된 첨부 문서가 없습니다/).waitFor();
+    await closeAi();
+    assert.equal(aiPosts,0);
+    await openAi(3);
+    await aiDialog.getByLabel("데모 접근 코드").fill(aiDemoCode);
+    await aiDialog.getByRole("button",{name:"분석 시작",exact:true}).click();
+    await aiDialog.getByText("참고 · 사업예산은 375만 원입니다.",{exact:true}).waitFor();
+    await aiDialog.getByText("원문 근거",{exact:true}).click();
+    await aiDialog.getByText(aiText,{exact:true}).waitFor();
+    assert.equal(aiPosts,1);
+    await closeAi();
     await open(5);
     await dialog.getByText(/원본 내려받는 중/).waitFor();
     await close();
@@ -159,8 +204,10 @@ const server = http.createServer(async (request,response) => {
     await page.getByRole("button",{name:"맞춤 추천",exact:true}).click();
     assert(await page.getByRole("checkbox",{name:"시설관리·청소",exact:true}).isChecked());
     assert.deepEqual(errors,[]);
-    assert(traffic.every(([method,resource,body])=>method==="GET"&&!body&&
-      (resource.startsWith(url)||resource.startsWith("https://www.g2b.go.kr/fixture-"))));
+    assert(traffic.every(([method,resource,body])=>
+      (method==="GET"&&!body&&(resource.startsWith(url)||resource.startsWith("https://www.g2b.go.kr/fixture-")||
+        resource.startsWith(aiOrigin+"/v1/approval?"))) ||
+      (method==="POST"&&resource===aiOrigin+"/v1/analyze"&&body)));
     if(process.env.G2B_TEST_PYTHON){
       const documents = [{parts:documentText.trim().split("\n").map((text,i)=>({text,line:i+1}))}];
       const native = spawnSync(process.env.G2B_TEST_PYTHON,
@@ -183,6 +230,7 @@ const server = http.createServer(async (request,response) => {
     const rect = await mobile.locator("#requirement-dialog").boundingBox();
     assert(rect.x>=0 && rect.x+rect.width<=375);
     console.log("PASS automatic processing, status/filter, sources, direct fail + manual fallback, cancellation, and tab result reuse");
-    console.log("PASS desktop/mobile, search, both CSVs, profile persistence, manual preview, and no text upload");
+    console.log("PASS desktop/mobile, search, both CSVs, profile persistence, and manual preview");
+    console.log("PASS gated AI report with mock server, approval refusal, approved excerpt only, and original citation");
   } finally { if(browser) await browser.close(); server.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

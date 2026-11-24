@@ -88,6 +88,16 @@ async function download(item, budget, parent) {
   }
 }
 
+export async function readApprovedAttachment(notice, approved, budget, signal) {
+  const source = officialAttachmentUrl(approved.sourceUrl);
+  const files = await loadAttachments(notice);
+  const item = files.find((file) => source && officialAttachmentUrl(file.sourceUrl) === source &&
+    file.filename === approved.filename && file.format === approved.format);
+  if (!item) throw Error("version_mismatch");
+  const buffer = await download(item, budget, signal);
+  return extractAttachment(buffer, item.format, signal, true);
+}
+
 function classify(documents, parent) {
   return new Promise((resolve, reject) => {
     parent.throwIfAborted();
