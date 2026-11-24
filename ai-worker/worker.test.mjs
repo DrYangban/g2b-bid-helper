@@ -140,7 +140,8 @@ test("authenticated model check sends only fictional Korean data and verifies th
   assert.equal((await check("")).status,401);
   assert.equal((await check(bearer,"아무 내용")).status,400);
   assert.equal(calls(),0);
-  const response = await check(bearer);
+  // Workers can expose a zero-length POST body as a readable stream.
+  const response = await check(bearer, "");
   assert.equal(response.status,200);
   assert.deepEqual(await response.json(), {
     model:"gemini-3.8-flash", structuredJson:true, evidenceVerified:true, synthetic:true, mode:"live",

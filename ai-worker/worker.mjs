@@ -283,7 +283,11 @@ export function createWorker(registry = approvedNotices) {
         if (env.AI_FREE_TIER_CONFIRMED !== "true" || !env.GEMINI_API_KEY) throw new RequestError("not_enabled", 503);
         let input;
         if (modelCheck) {
-          if (request.body) throw new RequestError("invalid_input");
+          if (request.body) {
+            for await (const chunk of request.body) {
+              if (chunk.byteLength) throw new RequestError("invalid_input");
+            }
+          }
           input = modelCheckInput();
         } else {
           if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) throw new RequestError("invalid_input");
