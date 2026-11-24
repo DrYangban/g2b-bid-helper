@@ -1,5 +1,5 @@
 import { cellValue, noticeLink, saveCsv } from "./bid-ui.js";
-import { mountRecommendations } from "./recommendation-view.js";
+import { mountRecommendations } from "./recommendation-view.js?v=3a1";
 import { attachmentButton, setAttachmentSnapshot } from "./attachment-view.js";
 
 const fields = [
