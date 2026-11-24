@@ -10,13 +10,13 @@ const root = path.resolve(process.argv[2] ?? ".");
 const vendor = path.resolve(process.env.G2B_QA_VENDOR ?? path.join(root,"site","vendor"));
 const now = new Date().toISOString();
 const deadline = new Date(Date.now() + 7 * 86400000).toISOString();
-const noticeId = "R26BK01800001";
 const names = ["시설 청소 완료", "시설 청소 일부", "시설 청소 실패", "시설 청소 미처리", "시설 청소 미지원", "시설 청소 취소 시험"];
 const notices = names.map((name, i) => ({
-  noticeId, revision: String(i).padStart(3, "0"), type: "service",
+  noticeId: "R26BK0180000" + i, revision: String(i).padStart(3, "0"), type: "service",
   "공고명": name, "발주기관": "테스트 기관", "입찰마감일": deadline,
   "추정가격(원)": "2500000", "공고 상세 링크": "https://www.g2b.go.kr/",
 }));
+const testKey = i => notices[i].noticeId + ":" + notices[i].revision;
 const attachment = { filename: "공고문.pdf", format: "pdf", category: "공고문",
   sourceUrl: "https://www.g2b.go.kr/fixture.pdf" };
 const txt = (suffix, format = "txt") => ({ filename: "공고문."+format, format, category:"공고문",
@@ -35,12 +35,12 @@ const base = {collectedAt: now, status: "available"};
 const data = {
   "bids.json": { ...base, window: {start:now,end:now}, notices },
   "attachments.json": { ...base, notices: {
-    [noticeId+":000"]: [attachment], [noticeId+":002"]:[txt("blocked")],
-    [noticeId+":003"]:[txt("valid")], [noticeId+":004"]:[txt("unsupported","xlsx")],
-    [noticeId+":005"]:[txt("slow")],
+    [testKey(0)]: [attachment], [testKey(2)]:[txt("blocked")],
+    [testKey(3)]:[txt("valid")], [testKey(4)]:[txt("unsupported","xlsx")],
+    [testKey(5)]:[txt("slow")],
   } },
   "requirements.json": { ...base, notices: Object.fromEntries(["processed","partial","failed"]
-    .map((status,i) => [noticeId+":"+String(i).padStart(3,"0"),report(status)])) },
+    .map((status,i) => [testKey(i),report(status)])) },
 };
 const mime = {".html":"text/html",".js":"text/javascript",".mjs":"text/javascript",".css":"text/css",".wasm":"application/wasm",".zip":"application/zip"};
 const server = http.createServer(async (request,response) => {
@@ -51,7 +51,7 @@ const server = http.createServer(async (request,response) => {
     const file = name.startsWith("vendor/") ? path.join(vendor,name.slice(7)) :
       name === "requirement_rules.py" ? path.join(root,name) : path.join(root,"site",name||"index.html");
     const payload = await fs.readFile(file);
-    response.writeHead(200,{"Content-Type":(mime[path.extname(file)]??"text/plain")+"; charset=utf-8"}).end(payload);
+    response.writeHead(200,{"Content-Type":mime[path.extname(file)]??"text/plain; charset=utf-8"}).end(payload);
   } catch { response.writeHead(404).end(); }
 });
 
@@ -110,6 +110,7 @@ const server = http.createServer(async (request,response) => {
         await dialog.getByText("수동 첨부로 요건 확인",{exact:true}).click();
         await dialog.locator("#requirement-files").setInputFiles({name:"직접 선택.txt",mimeType:"text/plain",buffer:Buffer.from(documentText)});
         await dialog.getByRole("button",{name:"선택한 파일 분석",exact:true}).click();
+        await dialog.getByText("브라우저 처리 완료",{exact:true}).waitFor();
         await dialog.getByText("직접 선택한 문서",{exact:true}).waitFor();
       }
       if(i===3){
