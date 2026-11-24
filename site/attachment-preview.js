@@ -103,7 +103,7 @@ function pdfPreview(buffer, result, signal) {
 function readContainer(buffer, format, signal) {
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
-    const worker = new Worker(new URL("./attachment-binary-worker.js", import.meta.url));
+    const worker = new Worker(new URL("./attachment-binary-worker.js?v=3a2", import.meta.url));
     const cleanup = () => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);

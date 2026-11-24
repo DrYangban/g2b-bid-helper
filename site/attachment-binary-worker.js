@@ -31,6 +31,29 @@ async function inflate(bytes, ceiling) {
   return result;
 }
 
+async function inflateHwp(bytes, ceiling) {
+  try {
+    return await inflate(bytes, ceiling);
+  } catch (error) {
+    if (!(error instanceof TypeError) || bytes.length < 9) throw error;
+    // Some HWP sections follow raw DEFLATE with an eight-byte CRC32 and size trailer.
+    const trailerOffset = bytes.length - 8;
+    const trailer = new DataView(bytes.buffer, bytes.byteOffset + trailerOffset, 8);
+    const size = trailer.getUint32(4, true);
+    if (size > ceiling) throw Error("expanded_limit");
+    const result = await inflate(bytes.subarray(0, trailerOffset), size);
+    let crc = 0xffffffff;
+    for (const byte of result) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    if (result.length !== size || (~crc >>> 0) !== trailer.getUint32(0, true)) {
+      throw Error("invalid_document");
+    }
+    return result;
+  }
+}
+
 function isOle(bytes) {
   return [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((value, index) => bytes[index] === value);
 }
@@ -143,7 +166,7 @@ async function hwpParts(bytes) {
   for (const stream of streams) {
     if (stream.entry.content.length > maxFile) throw Error("expanded_limit");
     const raw = new Uint8Array(stream.entry.content);
-    const decoded = flags & 1 ? await inflate(raw, remaining) : raw;
+    const decoded = flags & 1 ? await inflateHwp(raw, remaining) : raw;
     remaining -= decoded.length;
     if (remaining < 0) throw Error("expanded_limit");
     const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.length);

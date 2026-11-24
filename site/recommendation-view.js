@@ -1,7 +1,7 @@
 import { businessRegions, industries, workFields } from "./industry-catalog.js";
 import { prepareNotices, priceRange, rankNotices, splitPreferences } from "./recommendation-engine.js";
 import { cellValue, detailUrl, noticeLink, saveCsv } from "./bid-ui.js";
-import { attachmentButton } from "./attachment-view.js";
+import { attachmentButton } from "./attachment-view.js?v=3a2";
 
 const storageKey = "g2b-bid-helper:company-profile:v1";
 const textFields = ["company", "region", "district", "customFields", "keywords", "min", "max", "licenses", "experience"];

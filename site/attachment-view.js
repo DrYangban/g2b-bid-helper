@@ -1,5 +1,5 @@
 import { cellValue, noticeLink } from "./bid-ui.js";
-import { previewDocument, reasonLabels, warningLabels } from "./attachment-preview.js";
+import { previewDocument, reasonLabels, warningLabels } from "./attachment-preview.js?v=3a2";
 
 const byId = (id) => document.getElementById(id);
 const statusLabels = {
