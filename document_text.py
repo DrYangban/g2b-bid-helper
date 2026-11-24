@@ -220,6 +220,19 @@ def _hwp_records(data):
         raise DocumentError("invalid_document")
 
 
+def _inflate_hwp_section(data, allowance):
+    inflater = zlib.decompressobj(-15)
+    section = inflater.decompress(data, allowance + 1)
+    if len(section) > allowance:
+        raise DocumentError("expanded_limit")
+    if not inflater.eof:
+        raise DocumentError("invalid_document")
+    trailer = inflater.unused_data
+    if trailer and trailer != struct.pack("<II", zlib.crc32(section), len(section)):
+        raise DocumentError("invalid_document")
+    return section
+
+
 def _hwp(data, result):
     if not data.startswith(OLE_HEADER):
         raise DocumentError("wrong_format")
@@ -252,10 +265,7 @@ def _hwp(data, result):
             if len(section) > MAX_FILE:
                 raise DocumentError("expanded_limit")
             if flags & 1:
-                inflater = zlib.decompressobj(-15)
-                section = inflater.decompress(section, remaining + 1)
-                if not inflater.eof and len(section) <= remaining:
-                    raise DocumentError("invalid_document")
+                section = _inflate_hwp_section(section, remaining)
             remaining -= len(section)
             if remaining < 0:
                 raise DocumentError("expanded_limit")

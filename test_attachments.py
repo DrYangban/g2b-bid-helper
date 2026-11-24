@@ -1,12 +1,13 @@
 import io
 import struct
 import unittest
+import zlib
 from zipfile import ZipFile
 
 from pypdf import PdfWriter
 
 from collect_attachments import _public_result, download_url, group_attachments, sample_candidates
-from document_text import _hwp_records, _hwp_text, extract_document
+from document_text import DocumentError, _hwp_records, _hwp_text, _inflate_hwp_section, extract_document
 
 
 def zip_doc(name, xml, **additional):
@@ -77,6 +78,18 @@ class AttachmentTest(unittest.TestCase):
         tag, payload = next(_hwp_records(record))
         self.assertEqual(tag, 67)
         self.assertEqual(_hwp_text(payload), "한글\t입찰")
+
+    def test_hwp_compressed_section_trailer(self):
+        original = "한글 공고".encode("utf-16-le")
+        compressor = zlib.compressobj(wbits=-15)
+        raw = compressor.compress(original) + compressor.flush()
+        trailer = struct.pack("<II", zlib.crc32(original), len(original))
+        self.assertEqual(_inflate_hwp_section(raw, 1024), original)
+        self.assertEqual(_inflate_hwp_section(raw + trailer, 1024), original)
+        with self.assertRaisesRegex(DocumentError, "invalid_document"):
+            _inflate_hwp_section(raw + b"\0" * 8, 1024)
+        with self.assertRaisesRegex(DocumentError, "expanded_limit"):
+            _inflate_hwp_section(raw + trailer, 1)
 
     def test_pdf_no_text_encrypted_and_wrong_format(self):
         blank = PdfWriter()
