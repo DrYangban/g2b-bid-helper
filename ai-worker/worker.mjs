@@ -40,15 +40,16 @@ function json(payload, status = 200, retryAfter) {
   return Response.json(payload, { status, headers });
 }
 
-function failure(error) {
+function failure(error, fallback = "internal_error") {
   if (error instanceof RequestError) return json({ error: error.message }, error.status, error.retryAfter);
-  return json({ error: "internal_error" }, 503);
+  return json({ error: fallback }, 503);
 }
 
 function cors(response) {
-  response.headers.set("Access-Control-Allow-Origin", allowedOrigin);
-  response.headers.set("Vary", "Origin");
-  return response;
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  headers.set("Vary", "Origin");
+  return new Response(response.body, { status: response.status, headers });
 }
 
 async function readJson(stream, limit, code = "invalid_input", status = 400) {
@@ -218,25 +219,53 @@ export function validateReport(reply, sources) {
 }
 
 async function callGemini(input, key, apiFetch) {
-  const response = await apiFetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
-    method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    redirect: "error", signal: AbortSignal.timeout(deadlineMs),
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: instruction }] },
-      contents: [{
-        role: "user", parts: [{ text: JSON.stringify({
-          sections: aiSections, partial: input.partial, excerpts: input.evidence.map(({ id, text }) => ({ id, text })),
-        }) }],
-      }],
-      generationConfig: {
-        thinkingConfig: { thinkingLevel: "low" },
-        maxOutputTokens: 6000,
-        responseMimeType: "application/json",
-        responseJsonSchema: schema,
-      },
-    }),
+  const credential = typeof key === "string" ? key.trim() : "";
+  if (!credential || !/^[\x21-\x7e]+$/.test(credential)) throw new RequestError("gemini_key_format", 503);
+  const requestBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: instruction }] },
+    contents: [{
+      role: "user", parts: [{ text: JSON.stringify({
+        sections: aiSections, partial: input.partial, excerpts: input.evidence.map(({ id, text }) => ({ id, text })),
+      }) }],
+    }],
+    generationConfig: {
+      thinkingConfig: { thinkingLevel: "low" },
+      maxOutputTokens: 6000,
+      responseMimeType: "application/json",
+      responseJsonSchema: schema,
+    },
   });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), deadlineMs);
+  try {
+    return await generateReport(input, credential, apiFetch, abort.signal, requestBody);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function generateReport(input, key, apiFetch, signal, body) {
+  let response;
+  try {
+    response = await apiFetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      redirect: "error", signal, body,
+    });
+  } catch (error) {
+    if (signal.aborted) throw new RequestError("gemini_timeout", 504);
+    const message = error?.message ?? "";
+    if (/apiFetch is not a function|Illegal invocation/i.test(message)) throw new RequestError("gemini_fetch_binding", 502);
+    if (/header|bytestring/i.test(message)) throw new RequestError("gemini_request_headers", 502);
+    if (/redirect/i.test(message)) throw new RequestError("gemini_unexpected_redirect", 502);
+    if (/tls|certificate|dns|resolve|network connection lost|connection reset/i.test(message)) {
+      throw new RequestError("gemini_network_error", 502);
+    }
+    throw new RequestError("gemini_connection_failed", 502);
+  }
   if (response.status === 429) throw new RequestError("gemini_limit", 429, 60);
+  if (response.status === 400) throw new RequestError("gemini_request_rejected", 502);
+  if (response.status === 401 || response.status === 403) throw new RequestError("gemini_access_denied", 502);
+  if (response.status === 404) throw new RequestError("gemini_model_unavailable", 502);
   if (!response.ok) throw new RequestError("gemini_unavailable", 502);
   const envelope = await readJson(response.body, maxOutputBytes, "invalid_model_report", 502);
   const candidate = envelope.candidates?.[0];
@@ -267,6 +296,7 @@ export function createWorker(registry = approvedNotices) {
           "Access-Control-Max-Age": "600",
         } }));
       }
+      let failureCode = "internal_error";
       try {
         if (url.pathname === "/v1/approval" && request.method === "GET") {
           const entry = lookup(registry, url.searchParams.get("notice"));
@@ -283,9 +313,17 @@ export function createWorker(registry = approvedNotices) {
         if (env.AI_FREE_TIER_CONFIRMED !== "true" || !env.GEMINI_API_KEY) throw new RequestError("not_enabled", 503);
         let input;
         if (modelCheck) {
+          failureCode = "model_check_input_unavailable";
           if (request.body) {
-            for await (const chunk of request.body) {
-              if (chunk.byteLength) throw new RequestError("invalid_input");
+            const reader = request.body.getReader();
+            try {
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value.byteLength) throw new RequestError("invalid_input");
+              }
+            } finally {
+              void reader.cancel().catch(() => {});
             }
           }
           input = modelCheckInput();
@@ -294,17 +332,18 @@ export function createWorker(registry = approvedNotices) {
           if (Number(request.headers.get("Content-Length")) > maxRequestBytes) throw new RequestError("input_limit", 413);
           input = await approvedInput(await readJson(request.body, maxRequestBytes), registry);
         }
+        failureCode = "analysis_gate_unavailable";
         const gate = env.ANALYSIS_GATE.get(env.ANALYSIS_GATE.idFromName("single-project-budget-v1"));
         return cors(await gate.fetch("https://internal/analyze", { method: "POST", body: JSON.stringify(input) }));
       } catch (error) {
-        return cors(failure(error));
+        return cors(failure(error, failureCode));
       }
     },
   };
 }
 
 export class AnalysisGate {
-  constructor(ctx, env, apiFetch = fetch) {
+  constructor(ctx, env, apiFetch = (...args) => fetch(...args)) {
     this.sql = ctx.storage.sql;
     this.env = env;
     this.apiFetch = apiFetch;
@@ -314,6 +353,7 @@ export class AnalysisGate {
   }
 
   async fetch(request) {
+    let failureCode = "analysis_storage_unavailable";
     try {
       const input = await request.json();
       const now = Date.now();
@@ -331,6 +371,7 @@ export class AnalysisGate {
       this.sql.exec("INSERT OR REPLACE INTO busy VALUES (1, ?)", now + deadlineMs + 5_000);
       this.sql.exec("INSERT INTO requests VALUES (?)", now);
       try {
+        failureCode = "gemini_unavailable";
         let report = await callGemini(input, this.env.GEMINI_API_KEY, this.apiFetch);
         if (input.modelCheck) {
           const verified = report.sections.schedule.some((item) => item.type === "required" &&
@@ -338,6 +379,7 @@ export class AnalysisGate {
           if (!verified) throw new RequestError("invalid_model_report", 502);
           report = { model, structuredJson: true, evidenceVerified: true, synthetic: true };
         }
+        failureCode = "analysis_storage_unavailable";
         this.sql.exec("DELETE FROM reports WHERE expires<=?", now);
         this.sql.exec("INSERT OR REPLACE INTO reports VALUES (?, ?, ?)", input.cacheKey, JSON.stringify(report), now + oneDay);
         return json({ ...report, mode: "live" });
@@ -345,7 +387,7 @@ export class AnalysisGate {
         this.sql.exec("DELETE FROM busy WHERE id=1 AND until_at=?", now + deadlineMs + 5_000);
       }
     } catch (error) {
-      return failure(error);
+      return failure(error, failureCode);
     }
   }
 }

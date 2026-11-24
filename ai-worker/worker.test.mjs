@@ -39,11 +39,11 @@ function sqlite() {
 function setup(mock = upstream, expectedExcerpts = [{id:"d1-1",text:texts[0]}]) {
   const sql = sqlite();
   let calls = 0;
-  const env = { GEMINI_API_KEY:"fixture-only", DEMO_ACCESS_CODE:code, AI_FREE_TIER_CONFIRMED:"true" };
+  const env = { GEMINI_API_KEY:" fixture-only\r\n", DEMO_ACCESS_CODE:code, AI_FREE_TIER_CONFIRMED:"true" };
   const gate = new AnalysisGate({storage:{sql}}, env, (url, init) => {
     calls++;
     assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent");
-    assert.equal(init.headers["x-goog-api-key"], env.GEMINI_API_KEY);
+    assert.equal(init.headers["x-goog-api-key"], "fixture-only");
     const transmitted = JSON.parse(init.body);
     assert(!Object.hasOwn(transmitted,"tools"));
     assert(!Object.hasOwn(transmitted.generationConfig,"temperature"));
@@ -97,6 +97,15 @@ test("valid analysis checks quotations, includes locations and reuses the result
   assert.equal(calls(),1);
 });
 
+test("the Worker adds CORS without modifying immutable proxy response headers", async () => {
+  const {env,post} = setup();
+  env.ANALYSIS_GATE.get = () => ({fetch: async () => Response.redirect("https://example.org/")});
+  const response = await post(payload(notice));
+  assert.equal(response.status,302);
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"),origin);
+  assert.equal(response.headers.get("Location"),"https://example.org/");
+});
+
 test("free-tier flag and global per-day, per-minute and concurrent quotas", async () => {
   let start;
   let finish;
@@ -112,7 +121,8 @@ test("free-tier flag and global per-day, per-minute and concurrent quotas", asyn
   finish(upstream());
   await first;
   assert.equal((await (await post(payload(alternate))).json()).error,"minute_limit");
-  for(let i=0;i<5;i++) sql.exec("INSERT INTO requests VALUES (?)",Date.now()-300_000-i);
+  const oldRequest = Date.now() - 300_000;
+  for(let i=0;i<5;i++) sql.exec("INSERT INTO requests VALUES (?)",oldRequest-i);
   assert.equal((await (await post(payload(alternate))).json()).error,"daily_limit");
 });
 
