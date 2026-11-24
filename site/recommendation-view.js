@@ -1,8 +1,8 @@
 import { businessRegions, industries, workFields } from "./industry-catalog.js";
 import { prepareNotices, priceRange, rankNotices, splitPreferences } from "./recommendation-engine.js";
 import { cellValue, detailUrl, noticeLink, saveCsv } from "./bid-ui.js";
-import { attachmentButton } from "./attachment-view.js?v=3a2";
-import { requirementButton } from "./requirement-view.js?v=4a1";
+import { attachmentButton } from "./attachment-view.js?v=5b1";
+import { hasPublishedRequirements, requirementButton } from "./requirement-view.js?v=5b1";
 
 const storageKey = "g2b-bid-helper:company-profile:v1";
 const textFields = ["company", "region", "district", "customFields", "keywords", "min", "max", "licenses", "experience"];
@@ -109,6 +109,7 @@ export function mountRecommendations() {
   const filters = {
     field: byId("recommendation-field"), sort: byId("recommendation-sort"),
     min: byId("recommendation-min"), max: byId("recommendation-max"), excludeClosed: byId("exclude-closed"),
+    preprocessed: byId("recommendation-preprocessed"),
   };
   const saved = readStoredProfile();
   let profile = saved.profile;
@@ -182,6 +183,9 @@ export function mountRecommendations() {
       field: filters.field.value, sort: filters.sort.value, min: filters.min.value, max: filters.max.value,
       excludeClosed: filters.excludeClosed.checked,
     });
+    if (!filters.preprocessed.disabled && filters.preprocessed.checked) {
+      ranked = ranked.filter(({ notice }) => hasPublishedRequirements(notice));
+    }
     status.textContent = ranked.length ?
       "추천 공고 " + numberFormat.format(ranked.length) + "건" :
       "조건에 맞는 추천 공고가 없습니다. 업무 분야나 금액 범위를 바꿔 보세요.";
@@ -244,6 +248,10 @@ export function mountRecommendations() {
   saveStatus.textContent = saved.message;
 
   return {
+    updateRequirementIndex(available) {
+      filters.preprocessed.disabled = !available;
+      render();
+    },
     setSnapshot(data) {
       snapshot = data;
       entries = prepareNotices(data.notices);

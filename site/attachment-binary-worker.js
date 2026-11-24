@@ -1,7 +1,6 @@
 /* ZIP and HWP containers are parsed in a disposable worker. */
 const maxFile = 12 * 1024 * 1024;
 const maxExpanded = 12 * 1024 * 1024;
-const maxText = 24_000;
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 const little = new TextDecoder("utf-16le");
 const hwpWideControls = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23]);
@@ -145,7 +144,7 @@ function hwpParagraph(bytes) {
   return little.decode(result.subarray(0, size)).trim();
 }
 
-async function hwpParts(bytes) {
+async function hwpParts(bytes, analysis) {
   if (!isOle(bytes)) throw Error("wrong_format");
   importScripts("./vendor/cfb/cfb.min.js");
   const doc = CFB.read(bytes, { type: "array" });
@@ -161,6 +160,8 @@ async function hwpParts(bytes) {
   if (streams.length > 60) throw Error("expanded_limit");
   const parts = [];
   const warnings = new Set(["body_only"]);
+  const maxText = analysis ? 150_000 : 24_000;
+  const maxParts = analysis ? 4000 : 200;
   let remaining = maxExpanded;
   let length = 0;
   for (const stream of streams) {
@@ -187,7 +188,7 @@ async function hwpParts(bytes) {
       if (tag === 85) warnings.add("images_skipped");
       if (tag === 67) {
         paragraph++;
-        if (parts.length >= 200 || length >= maxText) {
+        if (parts.length >= maxParts || length >= maxText) {
           warnings.add("text_limit");
           return { parts, warnings: [...warnings] };
         }
@@ -209,7 +210,7 @@ self.onmessage = async ({ data }) => {
     const bytes = new Uint8Array(data.buffer);
     if (bytes.length > maxFile) throw Error("file_limit");
     if (!["hwp", "hwpx", "docx"].includes(data.format)) throw Error("unsupported");
-    const contents = data.format === "hwp" ? await hwpParts(bytes) : await xmlFiles(bytes, data.format);
+    const contents = data.format === "hwp" ? await hwpParts(bytes, data.analysis === true) : await xmlFiles(bytes, data.format);
     self.postMessage(contents);
   } catch (error) {
     self.postMessage({ error: error instanceof Error ? error.message : "invalid_document" });
