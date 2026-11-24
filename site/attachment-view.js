@@ -1,5 +1,6 @@
 import { cellValue, noticeLink } from "./bid-ui.js";
-import { previewDocument, reasonLabels, warningLabels } from "./attachment-preview.js?v=3a2";
+import { previewDocument, reasonLabels, warningLabels } from "./attachment-preview.js?v=5b1";
+import { loadAttachments, officialAttachmentUrl } from "./attachment-source.js?v=5b1";
 
 const byId = (id) => document.getElementById(id);
 const statusLabels = {
@@ -9,8 +10,6 @@ const statusLabels = {
   untested: "자동 시험 대상 아님",
   unsupported: "추출 지원 형식 아님",
 };
-let collectedAt;
-let manifest;
 let openNotice = 0;
 let localPreview;
 
@@ -19,37 +18,6 @@ function element(tag, text, className) {
   if (text) node.textContent = text;
   if (className) node.className = className;
   return node;
-}
-
-export function setAttachmentSnapshot(snapshot) {
-  collectedAt = snapshot.collectedAt;
-  manifest = undefined;
-}
-
-function loadManifest() {
-  manifest ??= fetch("./data/attachments.json", { cache: "no-cache" })
-    .then((response) => {
-      if (!response.ok) throw Error("attachment_index_unavailable");
-      return response.json();
-    })
-    .then((index) => {
-      if (index.collectedAt !== collectedAt || index.status !== "available" ||
-          !index.notices || typeof index.notices !== "object") throw Error("attachment_index_unavailable");
-      return index.notices;
-    })
-    .catch((error) => {
-      manifest = undefined;
-      throw error;
-    });
-  return manifest;
-}
-
-function originalLink(source) {
-  const link = noticeLink(source, "원본 열기·다운로드");
-  if (!link) return null;
-  const url = new URL(link.href);
-  return url.protocol === "https:" && ["g2b.go.kr", "www.g2b.go.kr"].includes(url.hostname) &&
-    (!url.port || url.port === "443") ? link : null;
 }
 
 function fileRow(item) {
@@ -64,7 +32,7 @@ function fileRow(item) {
   if (extraction.units) notes.push("읽은 단위 " + extraction.units + "개");
   if (reasonLabels[extraction.reason]) notes.push(reasonLabels[extraction.reason]);
   row.append(element("p", notes.join(" · "), "form-note"));
-  const original = originalLink(item.sourceUrl);
+  const original = noticeLink(officialAttachmentUrl(item.sourceUrl), "원본 열기·다운로드");
   if (original) row.append(original);
   else row.append(element("p", "확인된 원본 주소가 없습니다. 공고 원문을 확인하세요.", "form-note"));
   const warnings = (extraction.warnings ?? []).map((id) => warningLabels[id]).filter(Boolean);
@@ -78,11 +46,11 @@ export function attachmentButton(notice) {
   const id = notice.noticeId;
   const revision = notice.revision;
   button.disabled = typeof id !== "string" || typeof revision !== "string";
-  if (!button.disabled) button.addEventListener("click", () => showAttachments(notice, id + ":" + revision));
+  if (!button.disabled) button.addEventListener("click", () => showAttachments(notice));
   return button;
 }
 
-async function showAttachments(notice, key) {
+async function showAttachments(notice) {
   const active = ++openNotice;
   const dialog = byId("attachment-dialog");
   const list = byId("attachment-files");
@@ -95,7 +63,7 @@ async function showAttachments(notice, key) {
   status.textContent = "첨부파일 목록을 불러오는 중입니다…";
   if (!dialog.open) dialog.showModal();
   try {
-    const files = (await loadManifest())[key];
+    const files = await loadAttachments(notice);
     if (active !== openNotice || !dialog.open) return;
     status.textContent = files?.length ? "첨부파일 " + files.length + "개" :
       "연결된 첨부파일 자료가 없습니다. 공고 원문에서 확인하세요.";

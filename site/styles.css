@@ -210,16 +210,25 @@ input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; accent-color: var
 .attachment-button { min-height: 2.15rem; padding: .2rem .6rem; font-size: .86rem; }
 .notice-document-actions { display: inline-flex; flex-wrap: wrap; gap: .38rem; white-space: normal; }
 .requirement-button { font-weight: 700; }
+.requirement-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.requirement-badge { font-size: .76rem; line-height: 1.35; border: 1px solid var(--border); border-radius: .35rem; padding: .17rem .42rem; }
+.requirement-badge[data-status="processed"] { background: #e1f3e8; color: #174e34; }
+.requirement-badge[data-status="partial"] { background: #fff2d6; color: #6d4c11; }
+.requirement-badge[data-status="failed"] { background: #ffede9; color: #742d21; }
+.requirement-filter { margin: .6rem 0; }
 .requirement-notice-title { font-weight: 650; overflow-wrap: anywhere; margin: .65rem 0; }
 .requirement-status { font-size: 1rem; font-weight: 700; }
-.requirement-dialog { width: min(48rem, calc(100% - 1.5rem)); }
 .requirement-fields { margin-top: .5rem; }
-.requirement-field { border-block-start: 1px solid var(--border); padding: .75rem 0; }
-.requirement-field h3, .requirement-field p { margin: .2rem 0; }
+.requirement-group { margin: .8rem 0; }
+.requirement-group > h3 { background: #edf4f1; border-radius: .45rem; padding: .5rem .65rem; margin: 0; font-size: 1rem; }
+.requirement-field { border-block-end: 1px solid var(--border); padding: .6rem .55rem; }
+.requirement-field h4, .requirement-field p { margin: .2rem 0; }
+.requirement-field h5 { margin: .7rem 0 .25rem; font-size: .86rem; }
 .requirement-fact { font-weight: 600; }
 .requirement-sources { margin: .25rem 0 .65rem; padding-inline-start: 1.1rem; font-size: .87rem; overflow-wrap: anywhere; }
 .requirement-documents { padding: .55rem 0; }
 .requirement-documents summary { cursor: pointer; }
+#requirement-manual label, #requirement-files { display: block; margin: .45rem 0; max-width: 100%; }
 .attachment-dialog {
   width: min(44rem, calc(100% - 1.6rem));
   max-height: min(88vh, 54rem);
@@ -231,6 +240,7 @@ input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; accent-color: var
   background: #fff;
 }
 .attachment-dialog::backdrop { background: rgb(23 42 37 / .52); }
+.requirement-dialog { width: min(48rem, calc(100% - 1.5rem)); }
 .attachment-heading { display: flex; justify-content: space-between; align-items: center; gap: .8rem; }
 .attachment-heading h2 { margin: 0; font-size: 1.3rem; }
 #attachment-notice-title { margin: .6rem 0; overflow-wrap: anywhere; }

@@ -100,6 +100,26 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(result["scope"]["findings"],
                          [{"type": "topic", "value": "it", "at": [{"doc": 0, "paragraph": 2}]}])
 
+    def test_mandatory_document_evidence_is_distinct_from_mentions(self):
+        rules = summarize_documents([parts(
+            "필수 제출서류",
+            "1. 사업자등록증 사본",
+            "2. 해당 시 위임장",
+            "3. 제출서류: 법인등기부등본",
+            "인감증명서는 반드시 제출해야 합니다.",
+            "대리인은 사용인감계를 제출해야 합니다.",
+            "가격제안서는 제출하지 않아도 됩니다.",
+        )])
+        self.assertTrue(_fields_ok(rules, 1))
+        docs = {(item["type"], item["value"]): item["at"] for item in rules["documents"]["findings"]}
+        self.assertEqual(docs["requiredDocument", "registration"], [{"doc": 0, "paragraph": 2}, {"doc": 0, "paragraph": 1}])
+        self.assertEqual(docs["requiredDocument", "seal"], [{"doc": 0, "paragraph": 5}])
+        self.assertIn(("document", "agent"), docs)
+        self.assertIn(("document", "registry"), docs)
+        self.assertIn(("document", "usedSeal"), docs)
+        self.assertNotIn(("requiredDocument", "agent"), docs)
+        self.assertNotIn(("requiredDocument", "priceProposal"), docs)
+
 
 class IndexTest(unittest.TestCase):
     def setUp(self):

@@ -1,8 +1,14 @@
 import { cellValue, noticeLink } from "./bid-ui.js";
-import { reasonLabels, warningLabels } from "./attachment-preview.js?v=3a2";
+import { reasonLabels, warningLabels } from "./attachment-preview.js?v=5b1";
+import { officialAttachmentUrl } from "./attachment-source.js?v=5b1";
+import { analyzeNotice, analyzeUploaded } from "./requirement-analysis.js?v=5b1";
 
 const byId = (id) => document.getElementById(id);
 const dialog = byId("requirement-dialog");
+const status = byId("requirement-status");
+const content = byId("requirement-content");
+const manual = byId("requirement-manual");
+const files = byId("requirement-files");
 const noticeStatuses = {
   processed: "사전 처리 완료",
   partial: "일부 처리 · 누락 항목 확인 필요",
@@ -10,6 +16,10 @@ const noticeStatuses = {
   unprocessed: "아직 사전 처리되지 않은 공고",
 };
 const documentStatuses = { success: "텍스트 읽음", partial: "일부만 읽음", failed: "읽기 실패", unprocessed: "처리 범위 밖" };
+const badgeLabels = {
+  processed: "사전 분석 완료", partial: "사전 일부 분석", failed: "사전 분석 실패",
+  unprocessed: "미분석", loading: "사전 결과 확인 중", unavailable: "사전 상태 확인 불가",
+};
 const fieldNames = {
   scope: "사업 목적 및 주요 업무", budget: "사업 예산", period: "사업 수행 기간", eligibility: "입찰 참가 자격",
   region_industry: "지역 및 업종 제한", licenses: "면허 및 인증 요건", experience: "유사 사업 수행 실적",
@@ -36,9 +46,13 @@ const findingNames = {
   technical:"기술평가", price:"가격평가", joint:"공동수급", subcontract:"하도급",
 };
 const currency = new Intl.NumberFormat("ko-KR");
-let collectedAt;
 let loadPromise;
+let published = {};
+let indexState = "loading";
 let selection = 0;
+let activeJob;
+let chosenNotice;
+const sessionReports = new Map();
 
 function element(tag, text = "", className = "") {
   const node = document.createElement(tag);
@@ -48,24 +62,36 @@ function element(tag, text = "", className = "") {
 }
 
 export function setRequirementSnapshot(data) {
-  collectedAt = data.collectedAt;
-  loadPromise = undefined;
+  published = {};
+  sessionReports.clear();
+  indexState = "loading";
+  const request = fetch("./data/requirements.json", { cache: "no-cache", signal: AbortSignal.timeout(8_000) }).then(async (response) => {
+    if (!response.ok) throw Error("requirements_unavailable");
+    const index = await response.json();
+    if (index.collectedAt !== data.collectedAt || index.status !== "available" ||
+        !index.notices || typeof index.notices !== "object" || Array.isArray(index.notices)) throw Error("requirements_unavailable");
+    if (loadPromise !== request) return false;
+    published = index.notices;
+    indexState = "available";
+    return true;
+  }).catch(() => {
+    if (loadPromise === request) indexState = "unavailable";
+    return false;
+  });
+  loadPromise = request;
+  return request;
 }
 
-function loadReports() {
-  loadPromise ??= fetch("./data/requirements.json", { cache: "no-cache" }).then(async (response) => {
-    if (!response.ok) throw Error("requirements_unavailable");
-    const data = await response.json();
-    if (data.collectedAt !== collectedAt || data.status !== "available" || !data.notices) throw Error("requirements_unavailable");
-    return data.notices;
-  }).catch((error) => {
-    loadPromise = undefined;
-    throw error;
-  });
-  return loadPromise;
+function key(notice) {
+  return notice.noticeId + ":" + notice.revision;
+}
+
+export function hasPublishedRequirements(notice) {
+  return ["processed", "partial"].includes(published[key(notice)]?.status);
 }
 
 function findingText({type, value}) {
+  if (type === "document" || type === "requiredDocument") return labels.document[value];
   const name = findingNames[type];
   if (labels[type]) return name + " · " + labels[type][value];
   if (["budget", "estimate", "base"].includes(type)) return name + " · " + currency.format(value) + "원";
@@ -80,11 +106,7 @@ function findingText({type, value}) {
 }
 
 function sourceLink(source) {
-  const link = noticeLink(source.sourceUrl, source.filename);
-  if (!link) return null;
-  const url = new URL(link.href);
-  return url.protocol === "https:" && ["g2b.go.kr", "www.g2b.go.kr"].includes(url.hostname) && (!url.port || url.port === "443")
-    ? link : null;
+  return noticeLink(officialAttachmentUrl(source.sourceUrl), source.filename);
 }
 
 function sourcePosition(at, documents) {
@@ -105,9 +127,20 @@ function sourceList(locations, documents) {
 
 function renderField(key, value, documents) {
   const section = element("section", "", "requirement-field");
-  section.append(element("h3", fieldNames[key]), element("p", fieldStatuses[value.status], "form-note"));
-  for (const finding of value.findings) {
-    section.append(element("p", findingText(finding), "requirement-fact"), sourceList(finding.at, documents));
+  section.append(element("h4", fieldNames[key]), element("p", fieldStatuses[value.status], "form-note"));
+  if (key === "documents") {
+    for (const [type, title] of [["requiredDocument", "필수 제출 근거 있음"], ["document", "언급된 서류 · 필수 여부 확인 필요"]]) {
+      const group = value.findings.filter((finding) => finding.type === type);
+      if (!group.length) continue;
+      section.append(element("h5", title));
+      for (const finding of group) {
+        section.append(element("p", findingText(finding), "requirement-fact"), sourceList(finding.at, documents));
+      }
+    }
+  } else {
+    for (const finding of value.findings) {
+      section.append(element("p", findingText(finding), "requirement-fact"), sourceList(finding.at, documents));
+    }
   }
   if (!value.findings.length && value.references.length) section.append(sourceList(value.references, documents));
   return section;
@@ -133,43 +166,120 @@ function renderDocuments(documents, omitted) {
 }
 
 function renderReport(report) {
-  const content = byId("requirement-content");
   const fields = element("div", "", "requirement-fields");
-  if (report.status !== "failed" && report.status !== "unprocessed") {
-    for (const key of Object.keys(fieldNames)) {
-      fields.append(renderField(key, report.fields[key], report.documents));
+  if (report.fields) {
+    for (const [title, keys] of [
+      ["사업 개요와 일정", ["scope", "budget", "period", "schedule"]],
+      ["참가 요건", ["eligibility", "region_industry", "licenses", "experience", "joint_subcontract"]],
+      ["제출과 평가", ["documents", "evaluation"]],
+    ]) {
+      const group = element("section", "", "requirement-group");
+      group.append(element("h3", title));
+      for (const key of keys) group.append(renderField(key, report.fields[key], report.documents));
+      fields.append(group);
     }
   }
-  content.replaceChildren(renderDocuments(report.documents, report.omitted), fields);
+  const origin = report.manual ? "직접 선택한 문서" : report.browser ? "이 브라우저에서 자동 처리" : "공개 사전 처리 결과";
+  content.replaceChildren(element("p", origin, "form-note"), renderDocuments(report.documents, report.omitted), fields);
 }
 
 async function openRequirements(notice) {
   const active = ++selection;
-  const status = byId("requirement-status");
+  activeJob?.abort();
+  chosenNotice = notice;
+  manual.open = false;
+  files.value = "";
   byId("requirement-notice-title").textContent = cellValue(notice, "공고명");
   const original = noticeLink(cellValue(notice, "공고 상세 링크"), "공고 원문 열기");
   byId("requirement-original").replaceChildren(...(original ? [original] : []));
-  byId("requirement-content").replaceChildren();
+  content.replaceChildren();
   status.textContent = "공개된 사전 처리 결과를 불러오는 중입니다…";
   if (!dialog.open) dialog.showModal();
+  await loadPromise;
+  if (active !== selection || !dialog.open) return;
+  const id = key(notice);
+  if (hasPublishedRequirements(notice)) {
+    const report = published[id];
+    status.textContent = noticeStatuses[report.status];
+    renderReport(report);
+    return;
+  }
+  if (sessionReports.has(id)) {
+    showLocal(sessionReports.get(id));
+    return;
+  }
+  await runLocal((signal, progress) => analyzeNotice(notice, signal, progress), id, published[id]);
+}
+
+function showLocal(report) {
+  if (report.status === "failed") {
+    status.textContent = (report.manual ? "수동 처리 실패 · " : "자동 처리 실패 · ") +
+      (reasonLabels[report.reason] ?? "문서별 실패 사유를 확인해 주세요.");
+  } else {
+    status.textContent = report.status === "partial" ? "브라우저 일부 처리 · 누락 항목 확인 필요" : "브라우저 처리 완료";
+  }
+  renderReport(report);
+  if (report.status === "failed") content.querySelector("details").open = true;
+}
+
+async function runLocal(job, id, prior) {
+  activeJob?.abort();
+  const controller = new AbortController();
+  const active = activeJob = controller;
+  const visible = () => active === activeJob && dialog.open && !active.signal.aborted;
+  content.replaceChildren();
+  content.setAttribute("aria-busy", "true");
+  status.textContent = id ? "공개 첨부파일 목록 확인 중…" : "선택한 문서를 읽는 중…";
   try {
-    const reports = await loadReports();
-    if (active !== selection || !dialog.open) return;
-    const report = reports[notice.noticeId + ":" + notice.revision];
-    status.textContent = noticeStatuses[report?.status] ?? noticeStatuses.unprocessed;
-    if (report) renderReport(report);
-  } catch {
-    if (active === selection && dialog.open) status.textContent = "사전 처리 자료를 불러오지 못했습니다. 공고 원문을 확인하세요.";
+    const report = await job(active.signal, (phase, filename, done, total) => {
+      if (!visible()) return;
+      if (phase === "rules") status.textContent = "문서 읽기 " + done + "/" + total + " · 요건 정리 중…";
+      if (phase === "download") status.textContent = "원본 내려받는 중 · " + filename + " (" + done + "/" + total + " 처리)";
+      if (phase === "read") status.textContent = "텍스트 읽는 중 · " + filename + " (" + done + "/" + total + " 처리)";
+      if (phase === "done") status.textContent = "문서 " + done + "/" + total + "개 처리 중…";
+    });
+    if (!visible()) return;
+    if (id && report.fields) {
+      if (sessionReports.size >= 24) sessionReports.delete(sessionReports.keys().next().value);
+      sessionReports.set(id, report);
+    }
+    showLocal(report);
+  } catch (error) {
+    if (!visible()) return;
+    status.textContent = (id ? "자동 처리 실패 · " : "수동 처리 실패 · ") +
+      (reasonLabels[error.message] ?? "이 브라우저에서 처리하지 못했습니다.");
+    if (prior?.documents?.length) renderReport(prior);
+  } finally {
+    if (active === activeJob) content.removeAttribute("aria-busy");
   }
 }
 
 export function requirementButton(notice) {
+  const action = element("div", "", "requirement-action");
   const button = element("button", "필요 요건 확인", "attachment-button requirement-button");
   button.type = "button";
   button.disabled = typeof notice.noticeId !== "string" || typeof notice.revision !== "string";
   if (!button.disabled) button.addEventListener("click", () => openRequirements(notice));
-  return button;
+  const current = indexState === "available" ? published[key(notice)]?.status ?? "unprocessed" : indexState;
+  const badge = element("span", badgeLabels[current] ?? badgeLabels.unprocessed, "requirement-badge");
+  badge.dataset.status = current;
+  action.append(button, badge);
+  return action;
 }
 
 byId("requirement-close").addEventListener("click", () => dialog.close());
-dialog.addEventListener("close", () => { selection++; });
+dialog.addEventListener("close", () => {
+  if (dialog.open) return;
+  selection++;
+  activeJob?.abort();
+  chosenNotice = undefined;
+  files.value = "";
+  content.replaceChildren();
+  content.removeAttribute("aria-busy");
+});
+byId("requirement-manual-run").addEventListener("click", () => {
+  if (!chosenNotice || !dialog.open) return;
+  const chosenFiles = Array.from(files.files);
+  files.value = "";
+  void runLocal((signal, progress) => analyzeUploaded(chosenFiles, signal, progress));
+});

@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://g2b.go.kr https://www.g2b.go.kr; base-uri 'none'; object-src 'none'; form-action 'none'">
   <meta name="description" content="최근 3일 나라장터 용역 입찰공고를 찾고 CSV로 저장하세요.">
   <title>나라장터 AI 입찰 도우미</title>
-  <link rel="stylesheet" href="./styles.css?v=4a1">
-  <script src="./app.js?v=4a1" type="module"></script>
+  <link rel="stylesheet" href="./styles.css?v=5b1">
+  <script src="./app.js?v=5b1" type="module"></script>
 </head>
 <body>
   <main class="layout">
@@ -31,6 +31,7 @@
         </div>
         <button id="download" class="primary" type="button" disabled>검색 결과 CSV 저장</button>
       </div>
+      <label class="check-control requirement-filter"><input id="search-preprocessed" type="checkbox" disabled> 사전 분석된 공고만</label>
 
       <dl id="metadata" class="metadata" hidden>
         <div><dt>등록일시 범위</dt><dd id="window"></dd></div>
@@ -134,6 +135,7 @@
           <label>금액 필터 최소 (원) <input id="recommendation-min" type="text" inputmode="numeric" maxlength="33"></label>
           <label>금액 필터 최대 (원) <input id="recommendation-max" type="text" inputmode="numeric" maxlength="33"></label>
           <label class="check-control"><input id="exclude-closed" type="checkbox" checked> 마감·취소 공고 제외</label>
+          <label class="check-control"><input id="recommendation-preprocessed" type="checkbox" disabled> 사전 분석된 공고만</label>
         </div>
         <p id="recommendation-coverage" class="coverage-note" hidden></p>
         <p id="recommendation-status" class="form-note" role="status"></p>
@@ -148,9 +150,16 @@
       </div>
       <p id="requirement-notice-title" class="requirement-notice-title"></p>
       <div id="requirement-original"></div>
-      <p class="form-note">첨부 문서에서 규칙으로 찾은 단서입니다. 입찰 자격, 필수 서류, 정정공고는 나라장터 원문에서 확인하세요.</p>
+      <p class="form-note">첨부 문서에서 규칙으로 찾은 단서입니다. 참가 자격, 필수 서류의 적용 조건과 정정공고는 나라장터 원문에서 확인하세요.</p>
       <p id="requirement-status" class="requirement-status" role="status"></p>
       <div id="requirement-content"></div>
+      <details id="requirement-manual" class="requirement-documents">
+        <summary>수동 첨부로 요건 확인</summary>
+        <p class="form-note">원본을 직접 받은 경우에 사용할 수 있습니다. 파일은 이 브라우저에서만 읽습니다.</p>
+        <label for="requirement-files">파일 선택 (최대 3개, 파일당 12MiB)</label>
+        <input id="requirement-files" type="file" accept=".pdf,.hwp,.hwpx,.docx,.txt" multiple>
+        <button id="requirement-manual-run" type="button">선택한 파일 분석</button>
+      </details>
     </dialog>
     <dialog id="attachment-dialog" class="attachment-dialog" aria-labelledby="attachment-title">
       <div class="attachment-heading">

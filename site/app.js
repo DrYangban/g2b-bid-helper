@@ -1,7 +1,8 @@
 import { cellValue, noticeLink, saveCsv } from "./bid-ui.js";
-import { mountRecommendations } from "./recommendation-view.js?v=4a1";
-import { attachmentButton, setAttachmentSnapshot } from "./attachment-view.js?v=3a2";
-import { requirementButton, setRequirementSnapshot } from "./requirement-view.js?v=4a1";
+import { mountRecommendations } from "./recommendation-view.js?v=5b1";
+import { attachmentButton } from "./attachment-view.js?v=5b1";
+import { setAttachmentSnapshot } from "./attachment-source.js?v=5b1";
+import { hasPublishedRequirements, requirementButton, setRequirementSnapshot } from "./requirement-view.js?v=5b1";
 
 const fields = [
   ["공고명", "title"],
@@ -20,6 +21,7 @@ const koreaDateTime = new Intl.DateTimeFormat("ko-KR", {
 });
 
 const keywords = document.querySelector("#keywords");
+const preprocessed = document.querySelector("#search-preprocessed");
 const download = document.querySelector("#download");
 const status = document.querySelector("#status");
 const table = document.querySelector("#table-wrap");
@@ -82,10 +84,12 @@ function renderResults() {
 
 function applySearch() {
   const terms = keywords.value.toLowerCase().split(/[,\s]+/).filter(Boolean);
-  matches = terms.length ? snapshot.notices.filter((notice) => {
+  matches = snapshot.notices.filter((notice) => {
+    if (!preprocessed.disabled && preprocessed.checked && !hasPublishedRequirements(notice)) return false;
+    if (!terms.length) return true;
     const title = cellValue(notice, "공고명").toLowerCase();
     return terms.some((term) => title.includes(term));
-  }) : snapshot.notices;
+  });
   page = 0;
   renderResults();
 }
@@ -121,7 +125,13 @@ async function loadNotices() {
     const [start, end, collected] = dates.map((value) => new Date(value));
     snapshot = data;
     setAttachmentSnapshot(data);
-    setRequirementSnapshot(data);
+    void setRequirementSnapshot(data).then((available) => {
+      if (snapshot !== data) return;
+      preprocessed.disabled = !available;
+      if (preprocessed.checked) applySearch();
+      else renderResults();
+      recommendations.updateRequirementIndex(available);
+    });
     document.querySelector("#window").textContent = koreaDateTime.format(start) + " ~ " +
       koreaDateTime.format(end) + " (한국시간)";
     document.querySelector("#collected-at").textContent = koreaDateTime.format(collected);
@@ -137,6 +147,7 @@ async function loadNotices() {
 }
 
 keywords.addEventListener("input", applySearch);
+preprocessed.addEventListener("input", applySearch);
 download.addEventListener("click", downloadCsv);
 previous.addEventListener("click", () => {
   page -= 1;

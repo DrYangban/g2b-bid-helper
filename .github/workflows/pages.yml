@@ -45,6 +45,15 @@ jobs:
           cp "$packages/pdfjs-dist/LICENSE" "$packages/pdfjs-dist/build/pdf.min.mjs" "$packages/pdfjs-dist/build/pdf.worker.min.mjs" _site/vendor/pdfjs/
           cp -R "$packages/pdfjs-dist/cmaps" "$packages/pdfjs-dist/standard_fonts" _site/vendor/pdfjs/
           cp "$packages/cfb/LICENSE" "$packages/cfb/dist/cfb.min.js" _site/vendor/cfb/
+      - name: Prepare browser Python rules
+        continue-on-error: true
+        run: |
+          npm install --prefix "$RUNNER_TEMP/g2b-rules" --ignore-scripts --omit=optional --no-audit --no-fund pyodide@314.0.8
+          runtime="$RUNNER_TEMP/g2b-rules/node_modules/pyodide"
+          mkdir -p _site/vendor/pyodide-314.0.8
+          cp "$runtime/pyodide.mjs" "$runtime/pyodide.asm.mjs" "$runtime/pyodide.asm.wasm" \
+            "$runtime/pyodide-lock.json" "$runtime/python_stdlib.zip" "$runtime/README.md" _site/vendor/pyodide-314.0.8/
+          cp requirement_rules.py _site/
       - name: Collect public bid notices
         env:
           G2B_SERVICE_KEY: ${{ secrets.G2B_SERVICE_KEY }}
