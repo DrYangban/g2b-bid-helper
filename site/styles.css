@@ -207,6 +207,32 @@ input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; accent-color: var
 .recommendation-card details h5 { margin: .8rem 0 .3rem; font-size: .88rem; }
 .recommendation-card ul { margin: 0; padding-left: 1.2rem; line-height: 1.6; overflow-wrap: anywhere; }
 #more-recommendations { margin-top: .8rem; }
+.attachment-button { min-height: 2.15rem; padding: .2rem .6rem; font-size: .86rem; }
+.attachment-dialog {
+  width: min(44rem, calc(100% - 1.6rem));
+  max-height: min(88vh, 54rem);
+  overflow-y: auto;
+  padding: 1.35rem;
+  border: 1px solid var(--border);
+  border-radius: .85rem;
+  color: inherit;
+  background: #fff;
+}
+.attachment-dialog::backdrop { background: rgb(23 42 37 / .52); }
+.attachment-heading { display: flex; justify-content: space-between; align-items: center; gap: .8rem; }
+.attachment-heading h2 { margin: 0; font-size: 1.3rem; }
+#attachment-notice-title { margin: .6rem 0; overflow-wrap: anywhere; }
+#attachment-status { margin-top: .5rem; }
+.attachment-files { list-style: none; padding: 0; margin: .8rem 0; }
+.attachment-files li { border-block-start: 1px solid var(--border); padding: .65rem 0; overflow-wrap: anywhere; }
+.attachment-files a { display: inline-block; margin-top: .3rem; }
+.local-attachment { padding-top: .8rem; border-top: 1px solid var(--border); }
+.local-attachment h3, .attachment-text h4 { margin: .4rem 0; }
+.local-attachment label { display: block; margin: .7rem 0 .25rem; font-weight: 650; }
+.local-attachment input { width: 100%; margin-bottom: .45rem; color: inherit; }
+.attachment-text { margin-top: .6rem; }
+.attachment-text section { padding: .5rem 0; border-block-end: 1px solid var(--border); }
+.attachment-text pre { margin: .3rem 0; font: inherit; font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @media (max-width: 38rem) {
   .layout { padding: 2rem 1rem 1.5rem; }
