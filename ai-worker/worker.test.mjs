@@ -36,19 +36,22 @@ function sqlite() {
   }};
 }
 
-function setup(mock = upstream) {
+function setup(mock = upstream, expectedExcerpts = [{id:"d1-1",text:texts[0]}]) {
   const sql = sqlite();
   let calls = 0;
   const env = { GEMINI_API_KEY:"fixture-only", DEMO_ACCESS_CODE:code, AI_FREE_TIER_CONFIRMED:"true" };
   const gate = new AnalysisGate({storage:{sql}}, env, (url, init) => {
     calls++;
-    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent");
+    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent");
     assert.equal(init.headers["x-goog-api-key"], env.GEMINI_API_KEY);
     const transmitted = JSON.parse(init.body);
     assert(!Object.hasOwn(transmitted,"tools"));
+    assert(!Object.hasOwn(transmitted.generationConfig,"temperature"));
+    assert.deepEqual(transmitted.generationConfig.thinkingConfig, {thinkingLevel:"low"});
     assert.equal(transmitted.generationConfig.responseMimeType,"application/json");
+    assert.deepEqual(transmitted.generationConfig.responseJsonSchema.required,["sections"]);
     const input = JSON.parse(transmitted.contents[0].parts[0].text);
-    assert.deepEqual(input.excerpts, [{id:"d1-1",text:texts[0]}]);
+    assert.deepEqual(input.excerpts, expectedExcerpts);
     return mock();
   });
   env.ANALYSIS_GATE = { idFromName: name => name, get: () => ({
@@ -118,6 +121,32 @@ test("provider limit is surfaced and no fallback model is called", async () => {
   const response = await post(payload(notice));
   assert.equal(response.status,429);
   assert.deepEqual(await response.json(),{error:"gemini_limit"});
+  assert.equal(calls(),1);
+});
+
+test("authenticated model check sends only fictional Korean data and verifies the schedule quote", async () => {
+  const quote = "제안서는 2027년 1월 11일 오전 10시까지 제출해야 합니다.";
+  const excerpts = [{id:"model-check-1",text:"이 문서는 연결 확인용 가상 공고입니다. " + quote}];
+  const result = {sections:[{id:"schedule",items:[{
+    type:"required", summary:"제안서 제출은 1월 11일 오전 10시까지입니다.",
+    basis:[{id:excerpts[0].id, quote}],
+  }]}]};
+  const reply = () => Response.json({candidates:[{finishReason:"STOP",content:{parts:[{text:JSON.stringify(result)}]}}]});
+  const {env,worker,post,calls} = setup(reply, excerpts);
+  const check = (authorization, body) => worker.fetch(new Request("https://worker/v1/model-check", {
+    method:"POST", headers:{Origin:origin, Authorization:authorization}, body,
+  }), env);
+  const bearer = "Bearer " + code;
+  assert.equal((await check("")).status,401);
+  assert.equal((await check(bearer,"아무 내용")).status,400);
+  assert.equal(calls(),0);
+  const response = await check(bearer);
+  assert.equal(response.status,200);
+  assert.deepEqual(await response.json(), {
+    model:"gemini-3.8-flash", structuredJson:true, evidenceVerified:true, synthetic:true, mode:"live",
+  });
+  assert.equal((await (await check(bearer)).json()).mode,"reused");
+  assert.equal((await (await post(payload(notice))).json()).error,"minute_limit");
   assert.equal(calls(),1);
 });
 

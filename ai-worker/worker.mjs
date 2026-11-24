@@ -2,7 +2,7 @@ import { approvedNotices } from "./approved-notices.mjs";
 import { aiSections, excerptDigest, normalizeExcerpt } from "../site/ai-approval.js";
 
 const allowedOrigin = "https://dryangban.github.io";
-export const model = "gemini-3.1-flash-lite";
+export const model = "gemini-3.8-flash";
 const oneDay = 86_400_000;
 const minute = 60_000;
 const reportVersion = "3b-1";
@@ -13,6 +13,18 @@ const deadlineMs = 25_000;
 const itemTypes = ["required", "optional", "conditional", "information"];
 const sectionNames = Object.keys(aiSections);
 const keyPattern = /^[A-Z0-9]{6,28}:[0-9]{3}$/u;
+const modelCheckDeadline = "2027년 1월 11일 오전 10시";
+const modelCheckExcerpt = "이 문서는 연결 확인용 가상 공고입니다. 제안서는 " + modelCheckDeadline + "까지 제출해야 합니다.";
+
+function modelCheckInput() {
+  return {
+    cacheKey: "model-check:" + reportVersion + ":" + model,
+    modelCheck: true,
+    partial: false,
+    omittedDocuments: 0,
+    evidence: [{ id: "model-check-1", filename: "가상 입찰 공고", location: { paragraph: 1 }, text: modelCheckExcerpt }],
+  };
+}
 
 class RequestError extends Error {
   constructor(code, status = 400, retryAfter) {
@@ -216,7 +228,12 @@ async function callGemini(input, key, apiFetch) {
           sections: aiSections, partial: input.partial, excerpts: input.evidence.map(({ id, text }) => ({ id, text })),
         }) }],
       }],
-      generationConfig: { temperature: 0.15, maxOutputTokens: 6000, responseMimeType: "application/json", responseJsonSchema: schema },
+      generationConfig: {
+        thinkingConfig: { thinkingLevel: "low" },
+        maxOutputTokens: 6000,
+        responseMimeType: "application/json",
+        responseJsonSchema: schema,
+      },
     }),
   });
   if (response.status === 429) throw new RequestError("gemini_limit", 429, 60);
@@ -258,12 +275,21 @@ export function createWorker(registry = approvedNotices) {
           }
           return cors(json(publicApproval(entry)));
         }
-        if (url.pathname !== "/v1/analyze" || request.method !== "POST") throw new RequestError("not_found", 404);
+        const modelCheck = url.pathname === "/v1/model-check";
+        if ((!modelCheck && url.pathname !== "/v1/analyze") || request.method !== "POST") {
+          throw new RequestError("not_found", 404);
+        }
         await authorize(request, env.DEMO_ACCESS_CODE);
         if (env.AI_FREE_TIER_CONFIRMED !== "true" || !env.GEMINI_API_KEY) throw new RequestError("not_enabled", 503);
-        if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) throw new RequestError("invalid_input");
-        if (Number(request.headers.get("Content-Length")) > maxRequestBytes) throw new RequestError("input_limit", 413);
-        const input = await approvedInput(await readJson(request.body, maxRequestBytes), registry);
+        let input;
+        if (modelCheck) {
+          if (request.body) throw new RequestError("invalid_input");
+          input = modelCheckInput();
+        } else {
+          if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) throw new RequestError("invalid_input");
+          if (Number(request.headers.get("Content-Length")) > maxRequestBytes) throw new RequestError("input_limit", 413);
+          input = await approvedInput(await readJson(request.body, maxRequestBytes), registry);
+        }
         const gate = env.ANALYSIS_GATE.get(env.ANALYSIS_GATE.idFromName("single-project-budget-v1"));
         return cors(await gate.fetch("https://internal/analyze", { method: "POST", body: JSON.stringify(input) }));
       } catch (error) {
@@ -301,7 +327,13 @@ export class AnalysisGate {
       this.sql.exec("INSERT OR REPLACE INTO busy VALUES (1, ?)", now + deadlineMs + 5_000);
       this.sql.exec("INSERT INTO requests VALUES (?)", now);
       try {
-        const report = await callGemini(input, this.env.GEMINI_API_KEY, this.apiFetch);
+        let report = await callGemini(input, this.env.GEMINI_API_KEY, this.apiFetch);
+        if (input.modelCheck) {
+          const verified = report.sections.schedule.some((item) => item.type === "required" &&
+            item.basis.some(({ quote }) => quote.includes(modelCheckDeadline)));
+          if (!verified) throw new RequestError("invalid_model_report", 502);
+          report = { model, structuredJson: true, evidenceVerified: true, synthetic: true };
+        }
         this.sql.exec("DELETE FROM reports WHERE expires<=?", now);
         this.sql.exec("INSERT OR REPLACE INTO reports VALUES (?, ?, ?)", input.cacheKey, JSON.stringify(report), now + oneDay);
         return json({ ...report, mode: "live" });
