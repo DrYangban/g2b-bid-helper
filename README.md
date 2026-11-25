@@ -14,7 +14,13 @@
 
 접근 코드를 바꾸려면 Cloudflare의 **Workers & Pages → g2b-bid-helper-ai → Settings → Variables and Secrets**에서 기존 `DEMO_ACCESS_CODE`의 편집을 선택하세요. 기존 값은 표시되지 않습니다. 비밀번호 관리자에서 영문·숫자·하이픈·밑줄로 24자 이상을 만들고 **Secret**에 저장하세요. `GEMINI_API_KEY`는 그대로 두세요. [Cloudflare 비밀 변수 안내](https://developers.cloudflare.com/workers/configuration/secrets/)
 
-Google 무료 서비스가 입력과 출력을 서비스 개선에 사용할 수 있으므로 공개 원문이라도 일반 이용조건만으로 첨부파일을 등록하지 않습니다. 발주기관이 허락한 내용에서 개인정보가 없는 발췌만 검토한 뒤 `ai-worker/approved-notices.mjs`에 공고번호·차수, 공식 파일 URL, 형식, 원문 위치, 발췌 범위, SHA-256 및 허락 근거를 등록합니다. 해시는 `site/ai-approval.js`의 `selectApprovedExcerpts`와 `excerptDigest`로 계산합니다. Worker는 등록 해시와 일치하는 발췌만 받으며, 보고서에는 일부 범위라고 표시합니다. [Gemini 무료 서비스 약관](https://aistudio.google.com/docs/terms#unpaid-services)
+공공데이터 API의 공고 정보와 링크에는 해당 API의 이용조건이 적용됩니다. 첨부는 파일별로 권리자, 이용허락 범위, 공고 차수를 확인해야 합니다. 공공누리 제1유형은 출처를 표시하면 변경·상업적 이용과 AI 학습용 활용이 가능합니다. Gemini 무료 서비스는 입력·출력을 개선에 사용할 수 있고 재허락 가능한 권리를 요구하므로, 그 범위와 첨부에 대한 권리를 함께 확인합니다. 공개 링크만 있거나 학습 목적으로만 허용되는 경우 브라우저에 확인하지 못한 범위를 안내합니다. [공공데이터포털 권리 안내](https://www.data.go.kr/ugs/selectPortalPolicyView.do) · [한국문화정보원 AI 활용 FAQ](https://kcisa.kr/kr/contents/ai_faq/view.do) · [Gemini 무료 서비스 약관](https://aistudio.google.com/docs/terms#unpaid-services) · [Google API 제출 콘텐츠 조건](https://developers.google.com/terms#b_submission_of_content)
+
+파일별 이용허락을 확인한 경우 `ai-worker/approved-notices.mjs`에 정확한 공고번호·차수, 공식 파일 URL, 형식, 발췌 위치와 범위, `permission.geminiFree`, 출처 표시 문구인 `permission.attribution`, 공개 근거 주소인 `permission.evidenceUrl`을 등록합니다. 비공개 확인서나 담당자 연락처는 저장소에 보관하지 않습니다. 이용조건을 확인하지 못한 후보의 사유는 `noticeReviewReasons`에 기록합니다. 사용자가 분석을 시도하면 이 사유를 보여 줍니다.
+
+브라우저는 검토된 구간을 선택하고 이메일, 전화번호, 표기가 있는 이름, 주민등록번호 등의 패턴을 가립니다. 이름이나 주소, 서명, 보안 정보 등 자동 탐지가 어려운 부분은 검토 단계에서 구간을 제외하거나 발췌 안의 상대 위치를 `redactions`에 등록합니다. 범위는 정규화한 발췌를 기준으로 시작 포함·끝 제외이며 겹치지 않게 입력합니다. 해시는 가림 처리 후 `selectApprovedExcerpts`와 `excerptDigest`로 계산합니다. Worker는 같은 패턴이 남았거나 해시가 다르면 전송을 중단합니다. 패턴 검사는 개인정보와 보안 정보 검토를 보조합니다. 출처는 승인된 발췌와 함께 Gemini에 전달하며 보고서의 **원문 근거**에도 표시합니다.
+
+대량 처리를 하려면 발주기관과 파일 종류별로 외부 AI 전송, 제공자 서비스 개선, 재허락, 출처 표시 범위를 명시한 이용허락을 확보하고 이를 공고번호·차수와 첨부 버전에 연결합니다. 기관이 공개한 권리 데이터를 가져와 이미 확인된 범위만 자동으로 처리하고, 정정공고·권리 누락·개인정보 잔존은 검토 대상으로 돌립니다. 이용조건이 확인되지 않은 공고에도 기존 **필요 요건 확인**을 사용할 수 있습니다.
 
 동시 분석은 전체 1건, 새 생성은 분당 1회입니다. 샌프란시스코 시간대 날짜별 앱 상한은 총 8회이고, 그중 최대 2회를 운영자 점검용으로 남깁니다. 실행 예약 후 실패도 사용량에 포함하며 Google이 HTTP 429를 반환하면 일정 시간 새 호출을 멈춥니다. 자동 재시도는 없습니다.
 
