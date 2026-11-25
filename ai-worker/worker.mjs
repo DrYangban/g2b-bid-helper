@@ -1,5 +1,8 @@
 import { approvedNotices, noticeReviewReasons } from "./approved-notices.mjs";
 import { publicNoticeFacts } from "./public-notice-facts.mjs";
+import { autoFactCategories, excludedAttachmentName, factLocation, isConversion, maxFactFiles,
+  maxFactRows, pairedOriginal, publicFact } from "../site/ai-facts.js";
+import { officialAttachmentUrl } from "../site/attachment-source.js";
 import { aiSections, excerptDigest, normalizeExcerpt, redactApprovedText } from "../site/ai-approval.js";
 
 const allowedOrigin = "https://dryangban.github.io";
@@ -12,7 +15,7 @@ const maxText = 60_000;
 const maxOutputBytes = 160_000;
 const deadlineMs = 80_000;
 const pacificDay = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", dateStyle: "short" });
-const maxDailyRequests = 8;
+const maxDailyRequests = 14;
 const reservedDemoRequests = 2;
 const itemTypes = ["required", "optional", "conditional", "information"];
 const sectionNames = Object.keys(aiSections);
@@ -146,6 +149,71 @@ function findPublicFacts(notice) {
   return Date.parse(entry.until) > Date.now() ? entry : undefined;
 }
 
+async function publishedDocuments(notice, indexFetch) {
+  const shard = typeof notice === "string" && /^([A-Z0-9]{4,26})(\d{2}):\d{3}$/u.exec(notice)?.[2];
+  if (!shard) throw new RequestError("invalid_input");
+  if (noticeReviewReasons[notice] === "license_scope_unverified") throw new RequestError("license_scope_unverified", 404);
+  const response = await indexFetch(allowedOrigin + "/g2b-bid-helper/data/ai-index/" + shard + ".json", {
+    redirect: "error", signal: AbortSignal.timeout(5_000),
+  }).catch(() => { throw new RequestError("public_index_unavailable", 503); });
+  if (response.status === 404) throw new RequestError("no_public_files", 404);
+  if (!response.ok) throw new RequestError("public_index_unavailable", 503);
+  const index = await readJson(response.body, 360_000, "public_index_unavailable", 503);
+  const age = Date.now() - Date.parse(index?.collectedAt);
+  if (!Number.isFinite(age) || age < -minute || age > 2 * oneDay) throw new RequestError("public_index_unavailable", 503);
+  const files = index.notices && Object.hasOwn(index.notices, notice) ? index.notices[notice] : [];
+  if (!Array.isArray(files) || !files.length || files.length > 24) throw new RequestError("no_public_files", 404);
+  return files;
+}
+
+async function automaticFactsInput(payload, indexFetch) {
+  const { notice, files, facts } = payload;
+  if (!Array.isArray(files) || !files.length || files.length > maxFactFiles ||
+      !Array.isArray(facts) || !facts.length || facts.length > maxFactRows) throw new RequestError("invalid_input");
+  const available = await publishedDocuments(notice, indexFetch);
+  const selected = files.map(row => {
+    if (!Array.isArray(row) || row.length !== 2 || !["success","partial","restricted","unreadable"].includes(row[1])) {
+      throw new RequestError("invalid_input");
+    }
+    const [sourceUrl,state] = row;
+    const file = available.find(item => item.sourceUrl === sourceUrl);
+    if (!file || !officialAttachmentUrl(file.sourceUrl) || !autoFactCategories.includes(file.category) ||
+        excludedAttachmentName.test(file.filename)) throw new RequestError("no_public_files", 403);
+    return { ...file,state };
+  });
+  if (new Set(selected.map(file => file.sourceUrl)).size !== selected.length) throw new RequestError("invalid_input");
+  const seen = new Set();
+  const evidence = facts.map((row,index) => {
+    if (!Array.isArray(row) || row.length !== 4 || !Number.isInteger(row[2])) throw new RequestError("invalid_input");
+    const [type,value,doc,pos] = row;
+    const fact = publicFact(type,value);
+    const file = selected[doc];
+    const location = factLocation(pos);
+    const factKey = JSON.stringify([type,value]);
+    if (!fact || !location || !file || !["success","partial"].includes(file.state) ||
+        (file.format === "pdf") !== Object.hasOwn(location,"page") || seen.has(factKey)) {
+      throw new RequestError("invalid_input");
+    }
+    seen.add(factKey);
+    const original = pairedOriginal(file, available);
+    if (original && (excludedAttachmentName.test(original.filename) ||
+        selected.find(item => item.sourceUrl === original.sourceUrl)?.state === "restricted")) {
+      throw new RequestError("no_public_files",403);
+    }
+    return { id:"fact-" + (index + 1), factSection:fact.section, text:fact.text,
+      filename:file.filename, sourceUrl:file.sourceUrl, originalUrl:officialAttachmentUrl(original?.sourceUrl), location,
+      factType:type };
+  });
+  const used = new Set(evidence.map(item => item.sourceUrl));
+  const coverage = selected.map(({filename,state,sourceUrl}) => ({filename,state,used:used.has(sourceUrl)}));
+  return {
+    cacheKey: await excerptDigest([reportVersion, model, "public-auto-1", notice, files, facts]),
+    evidence, publicFacts:true, automatic:true, partial:true,
+    converted:selected.some(item => isConversion(item) && used.has(item.sourceUrl)),
+    omittedDocuments:available.length - selected.length, coverage,
+  };
+}
+
 async function publicFactsInput(notice, entry) {
   const evidence = entry.facts.map(([factSection, label, value, page], index) => ({
     id: "fact-" + (index + 1), factSection, filename: entry.filename,
@@ -266,6 +334,7 @@ export function validateReport(reply, sources) {
         const source = byId.get(ref?.id);
         const quote = typeof ref?.quote === "string" ? normalizeExcerpt(ref.quote) : "";
         if (source && (!source.factSection || source.factSection === id) &&
+            (item.type !== "required" || source.factType !== "document") &&
             quote.length >= 8 && quote.length <= 160 && source.text.includes(quote)) {
           basis.push({ filename: source.filename, sourceUrl: source.sourceUrl, location: source.location, quote,
             attribution: source.attribution, permissionUrl: source.permissionUrl, originalUrl: source.originalUrl });
@@ -283,7 +352,7 @@ async function callGemini(input, key, apiFetch) {
   if (!credential || !/^[\x21-\x7e]+$/.test(credential)) throw new RequestError("gemini_key_format", 503);
   const requestBody = JSON.stringify({
     systemInstruction: { parts: [{ text: input.publicFacts ? instruction +
-      "\n입력은 공고 원문이 아니라 검증된 공개 사실 항목이다. 각 사실의 factSection에 해당하는 섹션에서만 사용한다. 확인하지 않은 사업 조건은 빈 항목으로 둔다. 근거에는 제공된 사실 항목의 값을 넣는다." : instruction }] },
+      "\n입력은 공고 원문이 아니라 공개 사실 항목이다. 각 사실은 해당 factSection에만 사용한다. '언급·단서'와 필수 조건을 구분하고, 단서에서 자격이나 필수 조건을 확정하지 않는다. 근거에는 제공된 사실 항목의 값을 넣는다." : instruction }] },
     contents: [{
       role: "user", parts: [{ text: JSON.stringify({
         sections: aiSections, partial: input.partial,
@@ -341,7 +410,7 @@ async function generateReport(input, key, apiFetch, signal, body) {
   try { parsed = JSON.parse(raw); } catch { throw new RequestError("invalid_model_report", 502); }
   const report = validateReport(parsed, input.evidence);
   return { ...report, partial: input.partial || report.discarded > 0, omittedDocuments: input.omittedDocuments, model,
-    ...(input.publicFacts ? { publicFacts: true, converted: input.converted } : {}) };
+    ...(input.publicFacts ? { publicFacts:true, automatic:input.automatic, converted:input.converted, coverage:input.coverage } : {}) };
 }
 
 async function generateDemo(key, apiFetch) {
@@ -352,7 +421,8 @@ async function generateDemo(key, apiFetch) {
   return { ...report, synthetic: true, title: demoTitle };
 }
 
-export function createWorker(registry = approvedNotices, apiFetch = (...args) => fetch(...args)) {
+export function createWorker(registry = approvedNotices, apiFetch = (...args) => fetch(...args),
+  indexFetch = (...args) => fetch(...args)) {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -376,9 +446,14 @@ export function createWorker(registry = approvedNotices, apiFetch = (...args) =>
         if (url.pathname === "/v1/approval" && request.method === "GET") {
           const notice = url.searchParams.get("notice");
           const publicEntry = findPublicFacts(notice);
-          const entry = publicEntry ?? lookup(registry, notice);
+          const automatic = url.searchParams.get("public") === "1" && !publicEntry && !Object.hasOwn(registry,notice);
+          const entry = publicEntry ?? (automatic ? undefined : lookup(registry, notice));
           if (env.AI_FREE_TIER_CONFIRMED !== "true" || !env.DEMO_ACCESS_CODE || !env.GEMINI_API_KEY) {
             throw new RequestError("not_enabled", 503);
+          }
+          if (automatic) {
+            await publishedDocuments(notice,indexFetch);
+            return cors(json({publicFacts:true,automatic:true}));
           }
           return cors(json(publicEntry ? { publicFacts: true, converted: entry.converted, report: entry.report } : publicApproval(entry)));
         }
@@ -412,6 +487,8 @@ export function createWorker(registry = approvedNotices, apiFetch = (...args) =>
             const publicEntry = findPublicFacts(payload.notice);
             if (!publicEntry) throw new RequestError("not_approved", 404);
             input = await publicFactsInput(payload.notice, publicEntry);
+          } else if (hasKeys(payload, ["notice","files","facts"])) {
+            input = await automaticFactsInput(payload,indexFetch);
           } else {
             input = await approvedInput(payload, registry);
           }

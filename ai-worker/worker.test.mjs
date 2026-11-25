@@ -41,7 +41,7 @@ function sqlite() {
 }
 
 function setup(mock = upstream, expectedExcerpts = [{id:"d1-1",text:texts[0],
-  attribution:permission.attribution, permissionUrl:permission.evidenceUrl}], testRegistry = registry) {
+  attribution:permission.attribution, permissionUrl:permission.evidenceUrl}], testRegistry = registry, indexFetch) {
   const sql = sqlite();
   let calls = 0;
   const env = { GEMINI_API_KEY:" fixture-only\r\n", DEMO_ACCESS_CODE:code, AI_FREE_TIER_CONFIRMED:"true" };
@@ -59,7 +59,7 @@ function setup(mock = upstream, expectedExcerpts = [{id:"d1-1",text:texts[0],
     const input = JSON.parse(transmitted.contents[0].parts[0].text);
     if (expectedExcerpts) assert.deepEqual(input.excerpts, expectedExcerpts);
     return mock(input.excerpts);
-  });
+  },indexFetch);
   env.ANALYSIS_GATE = { idFromName: name => name, get: () => ({
     fetch: (url, options) => gate.fetch(new Request(url,options)),
   }) };
@@ -155,6 +155,41 @@ test("the museum pilot exposes a reviewed summary and only sends registered fact
   assert.equal((await post({notice:key})).status,404);
 });
 
+test("automatic requests accept typed facts from the current public index and reuse the generated report", async (t) => {
+  t.mock.timers.enable({apis:["Date"],now:new Date("2026-11-25T20:00:00Z")});
+  const key = "R26BK00000121:000";
+  const pdf = "https://www.g2b.go.kr/test-auto.pdf";
+  const original = "https://www.g2b.go.kr/test-auto.hwpx";
+  const indexFetch = async url => {
+    assert.match(url,/\/ai-index\/21\.json$/);
+    return Response.json({collectedAt:new Date().toISOString(),notices:{[key]:[
+      {sourceUrl:pdf,filename:"test-auto.pdf",format:"pdf",category:"공고문",documentLabel:"공고서(변환본)"},
+      {sourceUrl:original,filename:"test-auto.hwpx",format:"hwpx",category:"공고문",documentLabel:"공고서"},
+    ]}});
+  };
+  const modelReply = facts => {
+    assert.deepEqual(facts,[{id:"fact-1",text:"입찰 마감(한국시간): 2026-12-08 10:00",factSection:"schedule"}]);
+    return Response.json({candidates:[{finishReason:"STOP",content:{parts:[{text:JSON.stringify({
+      sections:[{id:"schedule",items:[{type:"required",summary:"12월 8일 오전 10시까지 제출",basis:[{id:"fact-1",quote:facts[0].text}]}]}],
+    })}]}}]});
+  };
+  const {worker,env,post,calls} = setup(modelReply,null,{},indexFetch);
+  const approval = await worker.fetch(new Request("https://worker/v1/approval?public=1&notice="+key,{headers:{Origin:origin}}),env);
+  assert.deepEqual(await approval.json(),{publicFacts:true,automatic:true});
+  const payload = {notice:key,files:[[pdf,"success"],[original,"success"]],facts:[["bidDeadline","2026-12-08 10:00",0,[2]]]};
+  assert.equal((await post({...payload,facts:[["bidDeadline","전화 010-0000-0000",0,[2]]]})).status,400);
+  assert.equal((await post({...payload,files:[[original,"restricted"]],facts:[["bidDeadline","2026-12-08 10:00",0,[1,2]]]})).status,400);
+  assert.equal((await post({...payload,files:[[pdf,"success"],[original,"restricted"]]})).status,403);
+  assert.equal(calls(),0);
+  const first = await (await post(payload)).json();
+  assert.equal(first.mode,"live");
+  assert.equal(first.automatic,true);
+  assert.equal(first.sections.schedule[0].basis[0].originalUrl,original);
+  assert.equal(first.coverage[1].used,false);
+  assert.equal((await (await post(payload)).json()).mode,"reused");
+  assert.equal(calls(),1);
+});
+
 test("browser redacts common contact patterns and reviewer-selected text before hashing", () => {
   const raw = "담당자: 가나다 · +82 (0)44-000-0000 · buyer @ example.test · 900101-1000000 · " +
     "기재자 나다라 · 마감은 2027-01-11이며 예산은 48,000,000원입니다.";
@@ -203,7 +238,7 @@ test("free-tier flag and global per-day, per-minute and concurrent quotas", asyn
   await first;
   assert.equal((await (await post(payload(alternate))).json()).error,"minute_limit");
   const oldRequest = Date.now() - 300_000;
-  for(let i=0;i<5;i++) sql.exec("INSERT INTO requests VALUES (?)",oldRequest-i);
+  for(let i=0;i<11;i++) sql.exec("INSERT INTO requests VALUES (?)",oldRequest-i);
   assert.equal((await (await post(payload(alternate))).json()).error,"daily_limit");
 });
 
@@ -247,7 +282,7 @@ test("the authenticated fictional report verifies its sources and reuses the sam
   assert.equal((await check("")).status,401);
   assert.equal((await check(bearer,"아무 내용")).status,400);
   assert.equal(calls(),0);
-  for (let i=0;i<6;i++) sql.exec("INSERT INTO requests VALUES (?)",Date.now()-300_000-i);
+  for (let i=0;i<12;i++) sql.exec("INSERT INTO requests VALUES (?)",Date.now()-300_000-i);
   assert.equal((await (await post(payload(notice))).json()).error,"daily_limit");
   // Workers can expose a zero-length POST body as a readable stream.
   const response = await check(bearer, "");
