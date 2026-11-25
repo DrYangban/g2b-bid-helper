@@ -429,7 +429,7 @@ export function createWorker(registry = approvedNotices, apiFetch = (...args) =>
       const origin = request.headers.get("Origin");
       if (url.pathname === "/health" && request.method === "GET") {
         return json({ service: "g2b-bid-helper-ai", model, ready: env.AI_FREE_TIER_CONFIRMED === "true" &&
-          Boolean(env.DEMO_ACCESS_CODE && env.GEMINI_API_KEY && env.ANALYSIS_GATE && Object.keys(registry).length),
+          Boolean(env.DEMO_ACCESS_CODE && env.GEMINI_API_KEY && env.ANALYSIS_GATE),
           approvedNotices: Object.keys(registry).length });
       }
       if (origin !== allowedOrigin) return json({ error: "origin_denied" }, 403);
