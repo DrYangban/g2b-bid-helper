@@ -4,15 +4,21 @@
 
 ## AI 공고문 분석 데모
 
+홈 화면에서 **가상 공고 AI 분석 체험**을 누르면 **[가상 공고] 작은도서관 통합 예약시스템 개선 용역**의 보고서가 열립니다. 실제 Gemini 응답을 가상 원문과 대조해 저장한 보고서입니다. 체험에는 접근 코드가 필요 없으며, 열 때마다 Gemini를 호출하지 않습니다.
+
 검색과 맞춤 추천에서 **AI 공고문 분석**을 열면 승인된 첨부에 한해 원본을 브라우저에서 읽고, 검토된 발췌를 지정된 Cloudflare Worker에 보냅니다. 최초 이용 때 데모 접근 코드가 필요합니다. 보고서는 필수·선택·조건부·참고를 구분하고, 항목마다 확인된 원문 발췌와 위치를 표시합니다. 회사 프로필은 이 요청에 포함되지 않습니다.
 
-`ai-worker/wrangler.jsonc`의 배포 대상은 기존 `g2b-bid-helper-ai`입니다. Worker는 Production Secret의 기존 `GEMINI_API_KEY`와 별도의 `DEMO_ACCESS_CODE`를 사용합니다. 키의 Google AI Studio 프로젝트가 Free 등급이고 청구 전환이 없는 것을 확인한 경우에만 Worker 변수 `AI_FREE_TIER_CONFIRMED`를 `true`로 설정합니다. Workers Free와 SQLite Durable Objects Free를 사용합니다. Gemini 모델은 `gemini-3.8-flash`이며 무료 입력·출력과 JSON 스키마를 지원합니다. 다른 모델이나 유료 옵션으로 자동 전환하지 않습니다. 이 프로젝트에서 확인된 한도는 분당 5회, 분당 25만 토큰입니다. 일일 한도는 AI Studio의 프로젝트 할당량에서 확인하세요. [Gemini 모델 명세](https://aistudio.google.com/docs/models/gemini-3.8-flash) · [Gemini 가격표](https://aistudio.google.com/docs/pricing#gemini-3.8-flash) · [프로젝트 할당량](https://aistudio.google.com/rate-limit) · [Cloudflare 무료 한도](https://developers.cloudflare.com/workers/platform/pricing/)
+`ai-worker/wrangler.jsonc`의 배포 대상은 기존 `g2b-bid-helper-ai`입니다. Worker는 Production Secret의 기존 `GEMINI_API_KEY`와 별도의 `DEMO_ACCESS_CODE`를 사용합니다. 키의 Google AI Studio 프로젝트가 Free 등급이고 청구 전환이 없는 것을 확인한 경우에만 Worker 변수 `AI_FREE_TIER_CONFIRMED`를 `true`로 설정합니다. Gemini 모델은 실제 생성에 성공한 `gemini-3.6-flash`입니다. 다른 모델이나 유료 옵션으로 자동 전환하지 않습니다. 사용자가 AI Studio에서 확인한 프로젝트 한도는 분당 5회, 분당 25만 토큰, 일일 20회입니다. Worker는 `GEMINI_FREE_RPD`에 지정한 프로젝트의 일일 한도 이하로 앱 상한을 제한합니다. [Gemini 모델 명세](https://aistudio.google.com/docs/models/gemini-3.6-flash) · [Gemini 가격표](https://aistudio.google.com/docs/pricing#gemini-3.6-flash) · [프로젝트 할당량](https://aistudio.google.com/rate-limit)
 
-운영자는 승인된 실제 문서 없이도 데모 접근 코드로 인증한 `POST /v1/model-check` 요청을 보낼 수 있습니다. 이 요청은 본문 없이 보내며, Worker 내부의 가상 공고만 Gemini에 전송해 JSON 응답과 제출 일정의 원문 근거를 검증합니다. 실제 분석과 같은 전체 호출 한도를 공유합니다.
+운영자는 접근 코드로 인증한 `POST /v1/model-check` 요청으로 고정된 가상 공고를 점검할 수 있습니다. 본문은 보내지 않습니다. 점검은 실제 분석과 총량을 공유하며, 성공한 가상 공고 보고서는 같은 코드 버전에서 다시 사용합니다.
+
+접근 코드를 바꾸려면 Cloudflare의 **Workers & Pages → g2b-bid-helper-ai → Settings → Variables and Secrets**에서 기존 `DEMO_ACCESS_CODE`의 편집을 선택하세요. 기존 값은 표시되지 않습니다. 비밀번호 관리자에서 영문·숫자·하이픈·밑줄로 24자 이상을 만들고 **Secret**에 저장하세요. `GEMINI_API_KEY`는 그대로 두세요. [Cloudflare 비밀 변수 안내](https://developers.cloudflare.com/workers/configuration/secrets/)
 
 Google 무료 서비스가 입력과 출력을 서비스 개선에 사용할 수 있으므로 공개 원문이라도 일반 이용조건만으로 첨부파일을 등록하지 않습니다. 발주기관이 허락한 내용에서 개인정보가 없는 발췌만 검토한 뒤 `ai-worker/approved-notices.mjs`에 공고번호·차수, 공식 파일 URL, 형식, 원문 위치, 발췌 범위, SHA-256 및 허락 근거를 등록합니다. 해시는 `site/ai-approval.js`의 `selectApprovedExcerpts`와 `excerptDigest`로 계산합니다. Worker는 등록 해시와 일치하는 발췌만 받으며, 보고서에는 일부 범위라고 표시합니다. [Gemini 무료 서비스 약관](https://aistudio.google.com/docs/terms#unpaid-services)
 
-동시 분석은 전체 1건, 신규 호출은 분당 1회와 최근 24시간 6회로 제한합니다. 발췌는 18,000자, 요청 본문은 72,000바이트까지입니다. 같은 공고·차수와 동일 발췌의 결과는 24시간 동안 재사용합니다. 입력 전문은 Durable Object에 보관하지 않습니다. 로컬 API 테스트는 `node --test ai-worker/worker.test.mjs`로 실행합니다.
+동시 분석은 전체 1건, 새 생성은 분당 1회입니다. 샌프란시스코 시간대 날짜별 앱 상한은 총 8회이고, 그중 최대 2회를 운영자 점검용으로 남깁니다. 실행 예약 후 실패도 사용량에 포함하며 Google이 HTTP 429를 반환하면 일정 시간 새 호출을 멈춥니다. 자동 재시도는 없습니다.
+
+승인된 발췌는 총 60,000자, HTTP 요청 본문은 196,000바이트까지입니다. 긴 문서를 승인할 때는 자격·제출·일정·위험 근거가 여러 위치에 있는지 살펴 발췌를 정하세요. 실공고는 승인된 발췌 단위로 분석하며 화면에 일부 범위로 표시합니다. 같은 공고와 동일 발췌의 결과는 24시간 동안 재사용합니다. 입력 전문은 Durable Object에 보관하지 않습니다. 로컬 API 테스트는 `node --test ai-worker/worker.test.mjs`로 실행합니다.
 
 ## 필요 요건 확인
 
