@@ -154,7 +154,7 @@ async function publishedDocuments(notice, indexFetch) {
   if (!shard) throw new RequestError("invalid_input");
   if (noticeReviewReasons[notice] === "license_scope_unverified") throw new RequestError("license_scope_unverified", 404);
   const response = await indexFetch(allowedOrigin + "/g2b-bid-helper/data/ai-index/" + shard + ".json", {
-    redirect: "error", signal: AbortSignal.timeout(5_000),
+    redirect: "manual", signal: AbortSignal.timeout(5_000),
   }).catch(() => { throw new RequestError("public_index_unavailable", 503); });
   if (response.status === 404) throw new RequestError("no_public_files", 404);
   if (!response.ok) throw new RequestError("public_index_unavailable", 503);
