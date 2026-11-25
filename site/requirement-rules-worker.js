@@ -20,7 +20,9 @@ self.onmessage = async ({ data }) => {
       // Only trusted fixed code is executable. Document text is passed as data.
       const result = python.runPython(
         "import json\nfrom requirement_rules import summarize_documents\n" +
-        "json.dumps(summarize_documents(json.loads(_document_json)), ensure_ascii=False)"
+        (data.separate ?
+          "json.dumps([summarize_documents([doc]) for doc in json.loads(_document_json)], ensure_ascii=False)" :
+          "json.dumps(summarize_documents(json.loads(_document_json)), ensure_ascii=False)")
       );
       self.postMessage({ fields: JSON.parse(result) });
     } finally {

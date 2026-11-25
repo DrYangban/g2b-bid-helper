@@ -1,5 +1,7 @@
 import { loadAttachments, officialAttachmentUrl } from "./attachment-source.js?v=5b1";
 import { extractAttachment, maxAttachmentBytes, supportedAttachmentFormats, reasonLabels } from "./attachment-preview.js?v=5b1";
+import { autoFactCategories, excludedAttachmentName, excludedAttachmentText, factLocation,
+  isConversion, maxFactFiles, maxFactRows, pairedOriginal, publicFact } from "./ai-facts.js";
 
 const priorities = ["공고문", "제안요청서", "과업지시서"];
 const maxDocuments = 3;
@@ -98,23 +100,23 @@ export async function readApprovedAttachment(notice, approved, budget, signal) {
   return extractAttachment(buffer, item.format, signal, true);
 }
 
-function classify(documents, parent) {
+function classify(documents, parent, separate = false) {
   return new Promise((resolve, reject) => {
     parent.throwIfAborted();
-    const worker = engine ??= new Worker(new URL("./requirement-rules-worker.js?v=5b1", import.meta.url), { type: "module" });
+    const launch = () => new Worker(new URL("./requirement-rules-worker.js?v=7b1", import.meta.url), { type: "module" });
+    const worker = separate ? launch() : (engine ??= launch());
     const time = timeBox(parent, 28_000, "rules_timeout");
     const finish = (error, value) => {
       time.signal.removeEventListener("abort", abort);
       time.close();
       worker.onmessage = null;
       worker.onerror = null;
-      if (error) {
+      if (separate || error) {
         worker.terminate();
-        engine = undefined;
-        reject(error);
-      } else {
-        resolve(value);
+        if (!separate) engine = undefined;
       }
+      if (error) reject(error);
+      else resolve(value);
     };
     const abort = () => finish(time.signal.reason);
     time.signal.addEventListener("abort", abort, { once: true });
@@ -123,7 +125,7 @@ function classify(documents, parent) {
       event.preventDefault();
       finish(Error("rules_unavailable"));
     };
-    worker.postMessage({ documents });
+    worker.postMessage({ documents, separate });
   });
 }
 
@@ -134,6 +136,96 @@ export async function analyzeNotice(notice, signal, progress) {
   const { selected, omitted } = candidates(files);
   if (!selected.length) throw Error("no_supported_attachments");
   return analyzeFiles(selected, omitted, download, signal, progress);
+}
+
+export async function analyzePublicNotice(notice, signal, progress) {
+  const files = (await loadAttachments(notice)).filter(file => autoFactCategories.includes(file.category) &&
+    ["pdf","hwp","hwpx","docx"].includes(file.format) && officialAttachmentUrl(file.sourceUrl)).slice(0,24);
+  signal.throwIfAborted();
+  const pool = files.filter(file => !excludedAttachmentName.test(file.filename));
+  const selected = [];
+  for (const category of autoFactCategories) {
+    const candidates = pool.filter(file => file.category === category);
+    const first = candidates.find(isConversion) ?? candidates[0];
+    if (!first) continue;
+    for (const file of [first, pairedOriginal(first, candidates)]) {
+      if (file && selected.length < maxFactFiles) selected.push(file);
+    }
+  }
+  if (!selected.length) throw Error("no_public_files");
+  const outcome = await analyzeFiles(selected, files.length - selected.length, download, signal, progress, false, true);
+  if (!outcome.facts?.length) throw Error(outcome.reason ?? "no_public_facts");
+  return {
+    notice: notice.noticeId + ":" + notice.revision,
+    files: selected.map(({sourceUrl}, index) => [sourceUrl, outcome.documents[index].state.status === "failed" ?
+      outcome.documents[index].state.reason === "restricted" ? "restricted" : "unreadable" : outcome.documents[index].state.status]),
+    facts: outcome.facts,
+  };
+}
+
+function supplementalFacts(parts, doc) {
+  const patterns = [
+    ["task","web",/웹서비스.{0,16}(?:구축|확장|개선)|웹사이트.{0,16}(?:구축|개선)/u],
+    ["task","maintenance",/정보시스템.{0,12}유지\s*(?:관리|보수)/u],
+    ["task","cleaning",/건물\s*청소|환경미화|청소\s*용역/u],
+    ["task","inspection",/안전\s*(?:점검|진단)/u],
+    ["task","shuttle",/(?:통학|통근)\s*(?:버스|차량|운행)/u],
+    ["task","education",/교육\s*프로그램.{0,15}운영/u],
+    ["task","video",/홍보\s*영상.{0,12}제작/u],
+    ["task","survey",/설문\s*조사.{0,14}분석/u],
+    ["submissionMethod","g2b",/(?:제출\s*방법|제안서.{0,15}제출|입찰서.{0,15}제출).{0,38}(?:나라장터.{0,18}제출|전자\s*제출|온라인\s*제출)/u],
+    ["submissionMethod","visit",/제출\s*방법\s*[:：]?\s*(?:직접\s*)?방문\s*제출/u],
+    ["companySize","small",/(?:입찰\s*참가자격.{0,60})?소기업.{0,8}소상공인\s*확인서.{0,30}(?:소지|보유)(?:한|하여야)/u],
+    ["risk","missingInvalid",/(?:입찰서와\s*제안서|제안서와\s*입찰서).{0,45}미제출.{0,15}입찰\s*무효/u],
+    ["risk","priceAbove",/입찰가격.{0,48}사업금액.{0,42}초과.{0,38}협상.{0,15}제외/u],
+  ];
+  const rows = [];
+  for (const { text, ...pos } of parts) {
+    const normalized = text.replace(/\s+/gu," ");
+    const at = [{ doc, ...pos }];
+    for (const [type,value,pattern] of patterns) if (pattern.test(normalized)) rows.push({type,value,at});
+    for (const [type,pattern] of [
+      ["productCode", /직접\s*생산.{0,90}세부품명\s*(?:번호|코드)?\s*[:：]?\s*([2-9]\d{9})(?!\d)/u],
+      ["staffCount", /(?:투입\s*인력|필수\s*인력).{0,25}?(\d{1,3})\s*명\s*이상/u],
+      ["staffYears", /(?:책임\s*인력|총괄\s*책임자|전담\s*인력).{0,35}?경력.{0,10}?(\d{1,2})\s*년\s*이상/u],
+    ]) {
+      const match = pattern.exec(normalized);
+      if (match) rows.push({type,value:type === "productCode" ? match[1] : Number(match[1]),at});
+    }
+  }
+  return rows;
+}
+
+function reportFacts(fieldGroups, files, documents, extracts) {
+  const merged = new Map();
+  const findings = [...fieldGroups.flatMap((fields,doc) => Object.values(fields).filter(field => field.status === "found")
+    .flatMap(field => field.findings.map(item => ({...item,at:item.at.map(at => ({...at,doc}))})))),
+    ...extracts.flatMap(({parts}, doc) => supplementalFacts(parts, doc))];
+  for (const {type,value,at} of findings) {
+    if (!publicFact(type,value)) continue;
+    const key = JSON.stringify([type,value]);
+    if (!merged.has(key)) merged.set(key,{type,value,at:[]});
+    merged.get(key).at.push(...at);
+  }
+  const rows = [];
+  for (const {type,value,at} of merged.values()) {
+    const usable = at.filter(({doc}) => {
+      const original = pairedOriginal(files[doc], files);
+      const index = files.indexOf(original);
+      if (index < 0) return true;
+      const state = documents[index].state;
+      return state.reason !== "restricted" && (!state.units || at.some(location => location.doc === index));
+    });
+    const preferred = usable.find(({doc}) => isConversion(files[doc])) ?? usable[0];
+    if (!preferred) continue;
+    const {doc,page,section,paragraph} = preferred;
+    const where = page ? [page] : [section ?? 0,paragraph];
+    if (factLocation(where)) rows.push([type,value,doc,where]);
+  }
+  const single = new Set(["budget","estimate","base","duration","dateRange","endDate","proposalDeadline","bidDeadline","opening","joint","subcontract"]);
+  const counts = new Map();
+  for (const [type] of rows) counts.set(type,(counts.get(type) ?? 0)+1);
+  return rows.filter(([type]) => !single.has(type) || counts.get(type) === 1).slice(0,maxFactRows);
 }
 
 export async function analyzeUploaded(files, signal, progress) {
@@ -150,7 +242,7 @@ export async function analyzeUploaded(files, signal, progress) {
   }, signal, progress, true);
 }
 
-async function analyzeFiles(selected, omitted, readBuffer, signal, progress, manual = false) {
+async function analyzeFiles(selected, omitted, readBuffer, signal, progress, manual = false, publicOnly = false) {
   const documents = selected.map(({ filename, format, category, sourceUrl }) => ({ filename, format, category, sourceUrl }));
   const extracts = selected.map(() => ({ parts: [] }));
   const budget = { remaining: maxTotalBytes };
@@ -173,6 +265,12 @@ async function analyzeFiles(selected, omitted, readBuffer, signal, progress, man
         progress("read", item.filename, completed, selected.length);
         const extracted = await extractAttachment(buffer, item.format, readTime.signal, true);
         buffer = undefined;
+        if (publicOnly && extracted.parts.some(({text}) => excludedAttachmentText.test(text) ||
+            excludedAttachmentText.test(text.replace(/\s+/gu," ")))) {
+          document.state = {status:"failed",reason:"restricted",warnings:[],units:0,downloaded};
+          completed++;
+          continue;
+        }
         extracts[index] = { parts: extracted.parts };
         const warnings = extracted.warnings;
         document.state = {
@@ -202,8 +300,11 @@ async function analyzeFiles(selected, omitted, readBuffer, signal, progress, man
   if (documents.every((item) => !item.state.units)) return { ...base, status: "failed" };
   progress("rules", "", completed, selected.length);
   try {
-    const fields = await classify(extracts, signal);
-    return { ...base, status: omitted || documents.some((item) => item.state.status !== "success") ? "partial" : "processed", fields };
+    const fields = await classify(extracts, signal, publicOnly);
+    const result = { ...base, status: omitted || documents.some((item) => item.state.status !== "success") ? "partial" : "processed" };
+    if (publicOnly) result.facts = reportFacts(fields, selected, documents, extracts);
+    else result.fields = fields;
+    return result;
   } catch (error) {
     signal.throwIfAborted();
     return { ...base, status: "failed", reason: error.message === "rules_timeout" ? error.message : "rules_unavailable" };
