@@ -235,6 +235,27 @@ def _write_json(destination, payload):
     temporary.replace(destination)
 
 
+def write_ai_index(destination, snapshot, groups):
+    buckets = {}
+    for notice in snapshot["notices"]:
+        key = f'{notice["noticeId"]}:{notice["revision"]}'
+        if not re.fullmatch(r"[A-Z0-9]{4,26}\d{2}:\d{3}", key):
+            continue
+        if re.search(r"취소|삭제", str(notice.get("noticeKind") or "")):
+            continue
+        files = [file for file in groups.get(key, []) if file["category"] in {"공고문", "제안요청서", "과업지시서"}
+                 and file["format"] in {"pdf", "hwp", "hwpx", "docx"}][:24]
+        if files:
+            buckets.setdefault(key.split(":")[0][-2:], {})[key] = [
+                {name: file[name] for name in ("sourceUrl", "filename", "format", "category", "documentLabel")}
+                for file in files
+            ]
+    for shard, notices in buckets.items():
+        _write_json(destination / f"{shard}.json", json.dumps(
+            {"collectedAt": snapshot["collectedAt"], "notices": notices}, ensure_ascii=False, separators=(",", ":")
+        ))
+
+
 def main():
     parser = argparse.ArgumentParser(description="공개 첨부파일 목록 및 표본 추출 상태를 수집합니다.")
     parser.add_argument("bids", type=Path)
@@ -281,6 +302,7 @@ def main():
     if service_key in unquote(published):
         raise SystemExit("공개 첨부파일 자료에서 인증 정보가 감지돼 저장을 중단했습니다.")
     _write_json(options.output, published)
+    write_ai_index(options.output.parent / "ai-index", snapshot, groups)
 
 
 if __name__ == "__main__":
