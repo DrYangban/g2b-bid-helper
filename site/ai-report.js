@@ -2,7 +2,7 @@ import { cellValue, noticeLink } from "./bid-ui.js";
 import { officialAttachmentUrl } from "./attachment-source.js?v=5b1";
 import { reasonLabels } from "./attachment-preview.js?v=5b1";
 import { readApprovedAttachment } from "./requirement-analysis.js?v=6b1";
-import { aiSections, excerptDigest, selectApprovedExcerpts } from "./ai-approval.js?v=6b1";
+import { aiSections, excerptDigest, selectApprovedExcerpts } from "./ai-approval.js?v=6b3";
 
 const service = "https://g2b-bid-helper-ai.kupaksa.workers.dev";
 const byId = (id) => document.getElementById(id);
@@ -13,7 +13,10 @@ const accessForm = byId("ai-access-form");
 const accessInput = byId("ai-access-code");
 const errors = {
   access_required: "데모 접근 코드가 필요하거나 코드가 맞지 않습니다.",
-  not_approved: "외부 AI 이용이 확인된 첨부 문서가 없습니다. 필요 요건 확인을 이용할 수 있습니다.",
+  not_approved: "이 공고의 첨부파일을 Gemini 무료 서비스에 전송할 수 있는지 아직 검토되지 않았습니다. 필요 요건 확인을 이용할 수 있습니다.",
+  attachment_terms_unverified: "공고 정보는 공개돼 있지만, 첨부파일의 외부 AI 전송 이용조건을 확인하지 못했습니다. 필요 요건 확인을 이용할 수 있습니다.",
+  license_scope_unverified: "첨부의 이용표시가 외부 AI 전송, 보고서 요약, 제공자의 서비스 개선까지 허용하는지 확인하지 못했습니다. 필요 요건 확인을 이용할 수 있습니다.",
+  sensitive_input: "보내려는 발췌에 개인정보 또는 민감정보로 보이는 내용이 남아 분석을 멈췄습니다.",
   not_enabled: "무료 이용 등급과 데모 설정을 확인하는 중입니다. 필요 요건 확인을 이용할 수 있습니다.",
   version_mismatch: "현재 파일의 내용 또는 버전이 승인된 범위와 다릅니다.",
   daily_limit: "오늘의 데모 분석 한도를 사용했습니다.",
@@ -94,6 +97,12 @@ function render(result, unavailable) {
         const entry = el("li");
         const link = noticeLink(officialAttachmentUrl(ref.sourceUrl), ref.filename);
         entry.append(link ?? el("span", ref.filename), " · " + locationLabel(ref.location), el("blockquote", ref.quote));
+        if (ref.attribution) {
+          const credit = el("p", ref.attribution + " ");
+          const permissionLink = noticeLink(ref.permissionUrl, "이용조건 근거");
+          if (permissionLink) credit.append(permissionLink);
+          entry.append(credit);
+        }
         list.append(entry);
       }
       details.append(list);

@@ -2,6 +2,35 @@ export function normalizeExcerpt(text) {
   return text.normalize("NFC").replace(/\s+/gu, " ").trim();
 }
 
+const hiddenText = "[가림]";
+const sensitivePatterns = [
+  /[\w.+%'-]+\s*[@＠]\s*[\w-]+(?:\s*\.\s*[\w-]+)+/gu,
+  /(?<!\d)(?:\+82[\s().-]*(?:0[\s().-]*)?|0)(?:1[016789]|2|[3-6][1-5]|70|80|50[2-8])[\s().-]*\d{3,4}[\s().-]*\d{4}(?!\d)/gu,
+  /(?<!\d)\d{6}[\s-]+[1-8]\d{6}(?!\d)/gu,
+  /((?:담당자(?:명|\s*성명)?|연락담당|성명|주무관|책임자)\s*[:：=]\s*)(?:[가-힣]{2,5}(?![가-힣])|[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})/gu,
+  /((?:계좌번호|여권번호|비밀번호|접속\s*토큰)\s*[:：=]\s*)[A-Za-z0-9][\w.+/=-]+/gu,
+];
+
+export function redactApprovedText(text, spans = []) {
+  if (!Array.isArray(spans)) throw Error("version_mismatch");
+  let cursor = 0;
+  let filtered = "";
+  for (const span of spans) {
+    if (!Array.isArray(span) || span.length !== 2) throw Error("version_mismatch");
+    const [start, end] = span;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < cursor || end <= start || end > text.length) {
+      throw Error("version_mismatch");
+    }
+    filtered += text.slice(cursor, start) + hiddenText;
+    cursor = end;
+  }
+  filtered += text.slice(cursor);
+  for (const pattern of sensitivePatterns) {
+    filtered = filtered.replace(pattern, (_, label) => (typeof label === "string" ? label : "") + hiddenText);
+  }
+  return normalizeExcerpt(filtered);
+}
+
 export async function excerptDigest(texts) {
   const bytes = new TextEncoder().encode(JSON.stringify(texts));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -9,7 +38,7 @@ export async function excerptDigest(texts) {
 }
 
 export function selectApprovedExcerpts(parts, segments) {
-  return segments.map(({ location, start, end }) => {
+  return segments.map(({ location, start, end, redactions }) => {
     const at = Object.entries(location);
     if (!at.length || !Number.isInteger(start) || !Number.isInteger(end) ||
         start < 0 || end <= start || end - start > 4_000) throw Error("version_mismatch");
@@ -17,7 +46,7 @@ export function selectApprovedExcerpts(parts, segments) {
     if (!part) throw Error("version_mismatch");
     const text = normalizeExcerpt(part.text);
     if (end > text.length) throw Error("version_mismatch");
-    return text.slice(start, end).trim();
+    return redactApprovedText(text.slice(start, end), redactions);
   });
 }
 

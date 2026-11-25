@@ -3,7 +3,7 @@ import { prepareNotices, priceRange, rankNotices, splitPreferences } from "./rec
 import { cellValue, detailUrl, noticeLink, saveCsv } from "./bid-ui.js";
 import { attachmentButton } from "./attachment-view.js?v=5b1";
 import { hasPublishedRequirements, requirementButton } from "./requirement-view.js?v=5b1";
-import { aiReportButton } from "./ai-report.js?v=6b2";
+import { aiReportButton } from "./ai-report.js?v=6b3";
 
 const storageKey = "g2b-bid-helper:company-profile:v1";
 const textFields = ["company", "region", "district", "customFields", "keywords", "min", "max", "licenses", "experience"];
