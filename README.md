@@ -14,7 +14,7 @@ Gemini에는 등록된 번호·날짜·금액·코드와 정해진 목록에서 
 
 홈 화면에서 **가상 공고 AI 분석 체험**을 누르면 **[가상 공고] 작은도서관 통합 예약시스템 개선 용역**의 보고서가 열립니다. 실제 Gemini 응답을 가상 원문과 대조해 저장한 보고서입니다. 체험에는 접근 코드가 필요 없으며, 열 때마다 Gemini를 호출하지 않습니다.
 
-검색과 맞춤 추천에서 **AI 공고문 분석**을 열면 승인된 첨부에 한해 원본을 브라우저에서 읽고, 검토된 발췌를 지정된 Cloudflare Worker에 보냅니다. 최초 이용 때 데모 접근 코드가 필요합니다. 보고서는 필수·선택·조건부·참고를 구분하고, 항목마다 확인된 원문 발췌와 위치를 표시합니다. 회사 프로필은 이 요청에 포함되지 않습니다.
+검색과 맞춤 추천 화면 양쪽에서 **AI 공고문 분석**을 열 수 있습니다. 최초 이용 때 데모 접근 코드가 필요합니다. 보고서는 필수·선택·조건부·참고를 구분하고, 항목마다 확인된 값과 해당 원문의 위치를 표시합니다.
 
 `ai-worker/wrangler.jsonc`의 배포 대상은 기존 `g2b-bid-helper-ai`입니다. Worker는 Production Secret의 기존 `GEMINI_API_KEY`와 별도의 `DEMO_ACCESS_CODE`를 사용합니다. 키의 Google AI Studio 프로젝트가 Free 등급이고 청구 전환이 없는 것을 확인한 경우에만 Worker 변수 `AI_FREE_TIER_CONFIRMED`를 `true`로 설정합니다. Gemini 모델은 실제 생성에 성공한 `gemini-3.6-flash`입니다. 다른 모델이나 유료 옵션으로 자동 전환하지 않습니다. 사용자가 AI Studio에서 확인한 프로젝트 한도는 분당 5회, 분당 25만 토큰, 일일 20회입니다. Worker는 `GEMINI_FREE_RPD`에 지정한 프로젝트의 일일 한도 이하로 앱 상한을 제한합니다. [Gemini 모델 명세](https://aistudio.google.com/docs/models/gemini-3.6-flash) · [Gemini 가격표](https://aistudio.google.com/docs/pricing#gemini-3.6-flash) · [프로젝트 할당량](https://aistudio.google.com/rate-limit)
 
