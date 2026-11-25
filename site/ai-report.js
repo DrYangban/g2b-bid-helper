@@ -61,15 +61,21 @@ function locationLabel(location) {
 
 function render(result, unavailable) {
   body.replaceChildren();
-  const overview = el("p", result.synthetic ?
+  const overview = el("p", result.publicFacts ?
+    (result.mode === "verified" ? "이 공고의 공개 사실을 바탕으로 Gemini가 생성했고, 확인을 마친 요약입니다." :
+      "이 공고의 공개 사실을 바탕으로 Gemini가 생성한 요약입니다.") : result.synthetic ?
     "체험용 가상 공고입니다. Gemini가 가상 원문을 분석해 생성한 보고서를 표시합니다." : result.mode === "reused" ?
     "Gemini의 기존 결과를 다시 열었습니다." : "이번 요청에서 Gemini가 생성한 보고서입니다.");
   overview.className = "form-note";
   body.append(overview);
   if (result.partial || unavailable.length) {
-    body.append(el("p", result.synthetic ?
+    body.append(el("p", result.publicFacts ?
+      "일부 범위 분석 · 확인된 공개 사실만 사용했습니다. 미확인 자격·예외·과업 조건은 원본에서 확인하세요." : result.synthetic ?
       "일부 항목의 근거를 검증하지 못했습니다. 아래의 확인 필요 항목을 살펴보세요." :
       "일부 범위 분석 · 승인된 발췌만 사용했습니다. 누락된 문서·표·이미지와 적용 예외는 원문에서 확인하세요."));
+  }
+  if (result.converted) {
+    body.append(el("p", "나라장터의 AI 인식용 변환본 PDF를 먼저 읽고 등록 원본과 대조했습니다. 차이가 있으면 원본이 입찰·계약 해석의 기준입니다."));
   }
   if (unavailable.length) {
     const details = el("details");
@@ -85,18 +91,22 @@ function render(result, unavailable) {
     section.className = "requirement-field";
     section.append(el("h3", name));
     const items = result.sections?.[id] ?? [];
-    if (!items.length) section.append(el("p", "확인 필요 · 전달한 문서 범위에서 근거를 확인하지 못했습니다."));
+    if (!items.length) section.append(el("p", result.publicFacts ?
+      "확인 필요 · 이 요약에 사용한 공개 항목에는 확인된 값이 없습니다." : "확인 필요 · 전달한 문서 범위에서 근거를 확인하지 못했습니다."));
     for (const item of items) {
       const claim = el("div");
       claim.className = "ai-claim";
       claim.append(el("p", (itemLabels[item.type] ?? "참고") + " · " + item.summary));
       const details = el("details");
-      details.append(el("summary", "원문 근거"));
+      details.append(el("summary", result.publicFacts ? "대조한 공개 항목과 출처" : "원문 근거"));
       const list = el("ul");
       for (const ref of item.basis) {
         const entry = el("li");
         const link = noticeLink(officialAttachmentUrl(ref.sourceUrl), ref.filename);
-        entry.append(link ?? el("span", ref.filename), " · " + locationLabel(ref.location), el("blockquote", ref.quote));
+        entry.append(link ?? el("span", ref.filename), " · " + locationLabel(ref.location));
+        const original = noticeLink(officialAttachmentUrl(ref.originalUrl), "등록 원본");
+        if (original) entry.append(" · ", original);
+        entry.append(el(result.publicFacts ? "p" : "blockquote", ref.quote));
         if (ref.attribution) {
           const credit = el("p", ref.attribution + " ");
           const permissionLink = noticeLink(ref.permissionUrl, "이용조건 근거");
@@ -122,7 +132,7 @@ async function runAnalysis(context, controller) {
   const approved = [];
   const unavailable = [];
   const readSignal = AbortSignal.any([signal, AbortSignal.timeout(40_000)]);
-  for (const doc of approval.documents) {
+  for (const doc of approval.documents ?? []) {
     if (!current()) return;
     status.textContent = "원본 확인 및 텍스트 읽는 중 · " + doc.filename;
     try {
@@ -135,20 +145,20 @@ async function runAnalysis(context, controller) {
     }
   }
   if (!current()) return;
-  if (!approved.length) {
+  if (!approval.publicFacts && !approved.length) {
     status.textContent = "전송할 수 있는 승인된 원문 발췌를 읽지 못했습니다.";
     const list = el("ul");
     for (const [name, reason] of unavailable) list.append(el("li", name + " · " + reason));
     body.replaceChildren(list);
     return;
   }
-  status.textContent = "승인된 발췌를 Gemini로 분석하고 있습니다…";
+  status.textContent = approval.publicFacts ? "대조한 공개 사실을 Gemini로 정리하고 있습니다…" : "승인된 발췌를 Gemini로 분석하고 있습니다…";
   try {
     const result = await request("/v1/analyze", {
       method: "POST",
       signal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionCode },
-      body: JSON.stringify({ notice: key, documents: approved }),
+      body: JSON.stringify(approval.publicFacts ? { notice: key } : { notice: key, documents: approved }),
     });
     if (!current()) return;
     status.textContent = result.partial || unavailable.length ? "AI 일부 분석" : "AI 분석 결과";
@@ -182,12 +192,18 @@ async function open(notice) {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8_000)]),
     });
     if (active !== controller || !dialog.open) return;
+    if (approval.publicFacts && approval.report?.publicFacts) {
+      status.textContent = "공개 사실 AI 요약";
+      render(approval.report, []);
+      return;
+    }
     selection = { notice, key, approval };
     if (sessionCode) await runAnalysis(selection, controller);
     else {
       accessForm.hidden = false;
       accessInput.focus();
-      status.textContent = "허용된 문서입니다. 데모 접근 코드를 입력하면 분석합니다.";
+      status.textContent = approval.publicFacts ? "대조한 공개 사실이 있습니다. 접근 코드를 입력하면 요약합니다." :
+        "허용된 문서입니다. 데모 접근 코드를 입력하면 분석합니다.";
     }
   } catch (error) {
     if (active === controller && dialog.open) {
