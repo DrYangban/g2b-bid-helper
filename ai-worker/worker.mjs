@@ -1,5 +1,5 @@
-import { approvedNotices } from "./approved-notices.mjs";
-import { aiSections, excerptDigest, normalizeExcerpt } from "../site/ai-approval.js";
+import { approvedNotices, noticeReviewReasons } from "./approved-notices.mjs";
+import { aiSections, excerptDigest, normalizeExcerpt, redactApprovedText } from "../site/ai-approval.js";
 
 const allowedOrigin = "https://dryangban.github.io";
 export const model = "gemini-3.6-flash";
@@ -107,19 +107,35 @@ async function authorize(request, expected) {
 
 function lookup(registry, notice) {
   if (typeof notice !== "string" || !keyPattern.test(notice)) throw new RequestError("invalid_input");
-  const entry = registry[notice];
+  const entry = Object.hasOwn(registry, notice) ? registry[notice] : undefined;
   if (!entry || !Array.isArray(entry.documents) || entry.documents.length < 1 || entry.documents.length > 3) {
-    throw new RequestError("not_approved", 404);
+    throw new RequestError(noticeReviewReasons[notice] ?? "not_approved", 404);
+  }
+  if (!entry.documents.every(({ permission }) => validPermission(permission))) {
+    throw new RequestError("license_scope_unverified", 404);
   }
   return entry;
 }
 
+function validPermission(permission) {
+  if (permission?.geminiFree !== true || typeof permission.attribution !== "string" ||
+      !permission.attribution || permission.attribution.length > 500 ||
+      redactApprovedText(permission.attribution) !== permission.attribution) return false;
+  try {
+    const url = new URL(permission.evidenceUrl);
+    return url.protocol === "https:" && !url.username && !url.password &&
+      ![...url.searchParams.keys()].some((key) => /key|token|password|credential|signature|auth/i.test(key));
+  } catch {
+    return false;
+  }
+}
+
 function publicApproval(entry) {
   return {
-    documents: entry.documents.map(({ id, filename, sourceUrl, format, sha256, segments }) =>
-      ({ id, filename, sourceUrl, format, sha256, segments })),
+    documents: entry.documents.map(({ id, filename, sourceUrl, format, sha256, segments, permission }) =>
+      ({ id, filename, sourceUrl, format, sha256, segments,
+        permission: { attribution: permission.attribution, evidenceUrl: permission.evidenceUrl } })),
     partial: true,
-    permission: entry.permission,
   };
 }
 
@@ -140,6 +156,7 @@ async function approvedInput(value, registry) {
       if (typeof text !== "string" || !text || text.length > 4_000 || normalizeExcerpt(text) !== text) {
         throw new RequestError("invalid_input");
       }
+      if (redactApprovedText(text) !== text) throw new RequestError("sensitive_input", 403);
       characters += text.length;
     }
     if (characters > maxText) throw new RequestError("input_limit", 413);
@@ -148,7 +165,8 @@ async function approvedInput(value, registry) {
   }
   const selected = entry.documents.filter((doc) => supplied.has(doc.id));
   return {
-    cacheKey: await excerptDigest([reportVersion, model, value.notice, ...selected.map((doc) => doc.sha256)]),
+    cacheKey: await excerptDigest([reportVersion, model, value.notice,
+      ...selected.map(({sha256, permission}) => [sha256, permission.attribution, permission.evidenceUrl])]),
     partial: true,
     omittedDocuments: entry.documents.length - selected.length,
     evidence: selected.flatMap((doc) => supplied.get(doc.id).map((text, index) => ({
@@ -156,6 +174,8 @@ async function approvedInput(value, registry) {
       filename: doc.filename,
       sourceUrl: doc.sourceUrl,
       location: doc.segments[index].location,
+      attribution: doc.permission.attribution,
+      permissionUrl: doc.permission.evidenceUrl,
       text,
     }))),
   };
@@ -223,7 +243,8 @@ export function validateReport(reply, sources) {
         const source = byId.get(ref?.id);
         const quote = typeof ref?.quote === "string" ? normalizeExcerpt(ref.quote) : "";
         if (source && quote.length >= 8 && quote.length <= 160 && source.text.includes(quote)) {
-          basis.push({ filename: source.filename, sourceUrl: source.sourceUrl, location: source.location, quote });
+          basis.push({ filename: source.filename, sourceUrl: source.sourceUrl, location: source.location, quote,
+            attribution: source.attribution, permissionUrl: source.permissionUrl });
         }
       }
       if (basis.length) sections[id].push({ type: item.type, summary: item.summary.trim(), basis });
@@ -240,7 +261,8 @@ async function callGemini(input, key, apiFetch) {
     systemInstruction: { parts: [{ text: instruction }] },
     contents: [{
       role: "user", parts: [{ text: JSON.stringify({
-        sections: aiSections, partial: input.partial, excerpts: input.evidence.map(({ id, text }) => ({ id, text })),
+        sections: aiSections, partial: input.partial,
+        excerpts: input.evidence.map(({ id, text, attribution, permissionUrl }) => ({ id, text, attribution, permissionUrl })),
       }) }],
     }],
     generationConfig: {
