@@ -6,6 +6,7 @@
   "preview_urls": false,
   "keep_vars": true,
   "observability": { "enabled": false },
+  "placement": { "region": "gcp:asia-northeast3" },
   "durable_objects": {
     "bindings": [{ "name": "ANALYSIS_GATE", "class_name": "AnalysisGate" }]
   },
