@@ -58,12 +58,15 @@ function locationLabel(location) {
 
 function render(result, unavailable) {
   body.replaceChildren();
-  const overview = el("p", result.mode === "reused" ?
+  const overview = el("p", result.synthetic ?
+    "체험용 가상 공고입니다. Gemini가 가상 원문을 분석해 생성한 보고서를 표시합니다." : result.mode === "reused" ?
     "Gemini의 기존 결과를 다시 열었습니다." : "이번 요청에서 Gemini가 생성한 보고서입니다.");
   overview.className = "form-note";
   body.append(overview);
   if (result.partial || unavailable.length) {
-    body.append(el("p", "일부 범위 분석 · 승인된 발췌만 사용했습니다. 누락된 문서·표·이미지와 적용 예외는 원문에서 확인하세요."));
+    body.append(el("p", result.synthetic ?
+      "일부 항목의 근거를 검증하지 못했습니다. 아래의 확인 필요 항목을 살펴보세요." :
+      "일부 범위 분석 · 승인된 발췌만 사용했습니다. 누락된 문서·표·이미지와 적용 예외는 원문에서 확인하세요."));
   }
   if (unavailable.length) {
     const details = el("details");
@@ -134,7 +137,7 @@ async function runAnalysis(context, controller) {
   try {
     const result = await request("/v1/analyze", {
       method: "POST",
-      signal: AbortSignal.any([signal, AbortSignal.timeout(32_000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + sessionCode },
       body: JSON.stringify({ notice: key, documents: approved }),
     });
@@ -192,6 +195,27 @@ export function aiReportButton(notice) {
   if (!button.disabled) button.addEventListener("click", () => void open(notice));
   return button;
 }
+
+byId("ai-demo-button").addEventListener("click", async () => {
+  active?.abort();
+  const controller = active = new AbortController();
+  selection = undefined;
+  body.replaceChildren();
+  accessForm.hidden = true;
+  accessInput.value = "";
+  byId("ai-report-notice").textContent = "가상 공고 체험";
+  status.textContent = "가상 공고의 AI 보고서를 불러오는 중입니다…";
+  if (!dialog.open) dialog.showModal();
+  try {
+    const { demoReport: result } = await import("./ai-demo-result.js?v=6b2");
+    if (active !== controller || !dialog.open) return;
+    byId("ai-report-notice").textContent = result.title;
+    status.textContent = result.partial ? "가상 공고 · AI 일부 분석" : "가상 공고 · AI 분석 결과";
+    render(result, []);
+  } catch (error) {
+    if (active === controller && dialog.open) status.textContent = "가상 공고의 보고서를 불러오지 못했습니다.";
+  }
+});
 
 accessForm.addEventListener("submit", (event) => {
   event.preventDefault();

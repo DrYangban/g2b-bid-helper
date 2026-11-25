@@ -1,9 +1,9 @@
 import { cellValue, noticeLink, saveCsv } from "./bid-ui.js";
-import { mountRecommendations } from "./recommendation-view.js?v=6b1";
+import { mountRecommendations } from "./recommendation-view.js?v=6b2";
 import { attachmentButton } from "./attachment-view.js?v=5b1";
 import { setAttachmentSnapshot } from "./attachment-source.js?v=5b1";
 import { hasPublishedRequirements, requirementButton, setRequirementSnapshot } from "./requirement-view.js?v=5b1";
-import { aiReportButton } from "./ai-report.js?v=6b1";
+import { aiReportButton } from "./ai-report.js?v=6b2";
 
 const fields = [
   ["공고명", "title"],
