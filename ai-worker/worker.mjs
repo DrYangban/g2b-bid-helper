@@ -303,7 +303,7 @@ async function generateDemo(key, apiFetch) {
   return { ...report, synthetic: true, title: demoTitle };
 }
 
-export function createWorker(registry = approvedNotices) {
+export function createWorker(registry = approvedNotices, apiFetch = (...args) => fetch(...args)) {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -360,7 +360,28 @@ export function createWorker(registry = approvedNotices) {
         }
         failureCode = "analysis_gate_unavailable";
         const gate = env.ANALYSIS_GATE.get(env.ANALYSIS_GATE.idFromName("single-project-budget-v1"));
-        return cors(await gate.fetch("https://internal/analyze", { method: "POST", body: JSON.stringify(input) }));
+        const reservation = await gate.fetch("https://internal/reserve", {
+          method: "POST", body: JSON.stringify({ cacheKey: input.cacheKey, modelCheck }),
+        });
+        if (reservation.status !== 202) return cors(reservation);
+        const { until } = await reservation.json();
+        let report;
+        let cooldown;
+        let analysisError;
+        try {
+          report = modelCheck ? await generateDemo(env.GEMINI_API_KEY, apiFetch) :
+            await callGemini(input, env.GEMINI_API_KEY, apiFetch);
+        } catch (error) {
+          if (error instanceof RequestError && error.message === "gemini_limit") cooldown = error.retryAfter;
+          analysisError = error;
+        }
+        const completion = await gate.fetch("https://internal/finish", {
+          method: "POST", body: JSON.stringify({ until, cacheKey: input.cacheKey, modelCheck, report, cooldown }),
+        });
+        if (!completion.ok) return cors(completion);
+        failureCode = "gemini_unavailable";
+        if (analysisError) throw analysisError;
+        return cors(json({ ...report, mode: "live" }));
       } catch (error) {
         return cors(failure(error, failureCode));
       }
@@ -369,20 +390,21 @@ export function createWorker(registry = approvedNotices) {
 }
 
 export class AnalysisGate {
-  constructor(ctx, env, apiFetch = (...args) => fetch(...args)) {
+  constructor(ctx, env) {
     this.sql = ctx.storage.sql;
     this.env = env;
-    this.apiFetch = apiFetch;
     this.sql.exec("CREATE TABLE IF NOT EXISTS requests (at INTEGER PRIMARY KEY)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, value TEXT NOT NULL, expires INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS busy (id INTEGER PRIMARY KEY, until_at INTEGER NOT NULL)");
   }
 
   async fetch(request) {
-    let failureCode = "analysis_storage_unavailable";
     try {
       const now = Date.now();
       const input = await request.json();
+      const path = new URL(request.url).pathname;
+      if (path === "/finish") return this.finish(input, now);
+      if (path !== "/reserve") throw new RequestError("not_found", 404);
       const cached = this.sql.exec("SELECT value FROM reports WHERE id=? AND expires>?", input.cacheKey, now).toArray()[0];
       if (cached) return json({ ...JSON.parse(cached.value), mode: "reused" });
       const cooldown = this.sql.exec("SELECT until_at FROM busy WHERE id=2").toArray()[0];
@@ -404,30 +426,27 @@ export class AnalysisGate {
       if (latest && now - latest < minute) {
         throw new RequestError("minute_limit", 429, Math.ceil((minute - now + latest) / 1000));
       }
-      // The SQL reservation and counter update run before the first upstream await.
-      this.sql.exec("INSERT OR REPLACE INTO busy VALUES (1, ?)", now + deadlineMs + 5_000);
+      // Reserve a single generation slot before the regional Worker calls Google.
+      const until = now + deadlineMs + 10_000;
+      this.sql.exec("INSERT OR REPLACE INTO busy VALUES (1, ?)", until);
       this.sql.exec("INSERT INTO requests VALUES (?)", now);
-      try {
-        failureCode = "gemini_unavailable";
-        const report = input.modelCheck ?
-          await generateDemo(this.env.GEMINI_API_KEY, this.apiFetch) :
-          await callGemini(input, this.env.GEMINI_API_KEY, this.apiFetch);
-        failureCode = "analysis_storage_unavailable";
-        this.sql.exec("DELETE FROM reports WHERE expires<=?", now);
-        const expires = input.modelCheck ? Number.MAX_SAFE_INTEGER : now + oneDay;
-        this.sql.exec("INSERT OR REPLACE INTO reports VALUES (?, ?, ?)", input.cacheKey, JSON.stringify(report), expires);
-        return json({ ...report, mode: "live" });
-      } catch (error) {
-        if (error instanceof RequestError && error.message === "gemini_limit") {
-          this.sql.exec("INSERT OR REPLACE INTO busy VALUES (2, ?)", Date.now() + error.retryAfter * 1_000);
-        }
-        throw error;
-      } finally {
-        this.sql.exec("DELETE FROM busy WHERE id=1 AND until_at=?", now + deadlineMs + 5_000);
-      }
+      return json({ until }, 202);
     } catch (error) {
-      return failure(error, failureCode);
+      return failure(error, "analysis_storage_unavailable");
     }
+  }
+
+  finish({ until, cacheKey, modelCheck, report, cooldown }, now) {
+    const active = this.sql.exec("SELECT until_at FROM busy WHERE id=1").toArray()[0];
+    if (!Number.isSafeInteger(until) || active?.until_at !== until) throw new RequestError("analysis_gate_unavailable", 503);
+    if (report) {
+      this.sql.exec("DELETE FROM reports WHERE expires<=?", now);
+      const expires = modelCheck ? Number.MAX_SAFE_INTEGER : now + oneDay;
+      this.sql.exec("INSERT OR REPLACE INTO reports VALUES (?, ?, ?)", cacheKey, JSON.stringify(report), expires);
+    }
+    if (cooldown) this.sql.exec("INSERT OR REPLACE INTO busy VALUES (2, ?)", now + cooldown * 1_000);
+    this.sql.exec("DELETE FROM busy WHERE id=1 AND until_at=?", until);
+    return json({ ok: true });
   }
 }
 

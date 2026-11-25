@@ -40,7 +40,8 @@ function setup(mock = upstream, expectedExcerpts = [{id:"d1-1",text:texts[0]}], 
   const sql = sqlite();
   let calls = 0;
   const env = { GEMINI_API_KEY:" fixture-only\r\n", DEMO_ACCESS_CODE:code, AI_FREE_TIER_CONFIRMED:"true" };
-  const gate = new AnalysisGate({storage:{sql}}, env, (url, init) => {
+  const gate = new AnalysisGate({storage:{sql}}, env);
+  const worker = createWorker(testRegistry, (url, init) => {
     calls++;
     assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent");
     assert.equal(init.headers["x-goog-api-key"], "fixture-only");
@@ -57,7 +58,6 @@ function setup(mock = upstream, expectedExcerpts = [{id:"d1-1",text:texts[0]}], 
   env.ANALYSIS_GATE = { idFromName: name => name, get: () => ({
     fetch: (url, options) => gate.fetch(new Request(url,options)),
   }) };
-  const worker = createWorker(testRegistry);
   async function post(value, options = {}) {
     return worker.fetch(new Request("https://worker/v1/analyze",{
       method:"POST",headers:{Origin:options.origin??origin,"Content-Type":"application/json",
