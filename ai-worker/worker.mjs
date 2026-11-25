@@ -1,4 +1,5 @@
 import { approvedNotices, noticeReviewReasons } from "./approved-notices.mjs";
+import { publicNoticeFacts } from "./public-notice-facts.mjs";
 import { aiSections, excerptDigest, normalizeExcerpt, redactApprovedText } from "../site/ai-approval.js";
 
 const allowedOrigin = "https://dryangban.github.io";
@@ -139,6 +140,28 @@ function publicApproval(entry) {
   };
 }
 
+function findPublicFacts(notice) {
+  if (typeof notice !== "string" || !Object.hasOwn(publicNoticeFacts, notice)) return undefined;
+  const entry = publicNoticeFacts[notice];
+  return Date.parse(entry.until) > Date.now() ? entry : undefined;
+}
+
+async function publicFactsInput(notice, entry) {
+  const evidence = entry.facts.map(([factSection, label, value, page], index) => ({
+    id: "fact-" + (index + 1), factSection, filename: entry.filename,
+    sourceUrl: entry.sourceUrl, originalUrl: entry.originalUrl,
+    location: { page }, text: label + ": " + value,
+  }));
+  if (evidence.some(({ text }) => redactApprovedText(text) !== text)) {
+    throw new RequestError("sensitive_input", 403);
+  }
+  return {
+    cacheKey: await excerptDigest([reportVersion, model, "public-facts", notice,
+      entry.sourceUrl, entry.originalUrl, JSON.stringify(entry.facts)]),
+    evidence, partial: true, publicFacts: true, converted: entry.converted, omittedDocuments: 0,
+  };
+}
+
 async function approvedInput(value, registry) {
   if (!hasKeys(value, ["notice", "documents"])) throw new RequestError("invalid_input");
   const entry = lookup(registry, value.notice);
@@ -242,9 +265,10 @@ export function validateReport(reply, sources) {
       for (const ref of item.basis.slice(0, 2)) {
         const source = byId.get(ref?.id);
         const quote = typeof ref?.quote === "string" ? normalizeExcerpt(ref.quote) : "";
-        if (source && quote.length >= 8 && quote.length <= 160 && source.text.includes(quote)) {
+        if (source && (!source.factSection || source.factSection === id) &&
+            quote.length >= 8 && quote.length <= 160 && source.text.includes(quote)) {
           basis.push({ filename: source.filename, sourceUrl: source.sourceUrl, location: source.location, quote,
-            attribution: source.attribution, permissionUrl: source.permissionUrl });
+            attribution: source.attribution, permissionUrl: source.permissionUrl, originalUrl: source.originalUrl });
         }
       }
       if (basis.length) sections[id].push({ type: item.type, summary: item.summary.trim(), basis });
@@ -258,11 +282,13 @@ async function callGemini(input, key, apiFetch) {
   const credential = typeof key === "string" ? key.trim() : "";
   if (!credential || !/^[\x21-\x7e]+$/.test(credential)) throw new RequestError("gemini_key_format", 503);
   const requestBody = JSON.stringify({
-    systemInstruction: { parts: [{ text: instruction }] },
+    systemInstruction: { parts: [{ text: input.publicFacts ? instruction +
+      "\n입력은 공고 원문이 아니라 검증된 공개 사실 항목이다. 각 사실의 factSection에 해당하는 섹션에서만 사용한다. 확인하지 않은 사업 조건은 빈 항목으로 둔다. 근거에는 제공된 사실 항목의 값을 넣는다." : instruction }] },
     contents: [{
       role: "user", parts: [{ text: JSON.stringify({
         sections: aiSections, partial: input.partial,
-        excerpts: input.evidence.map(({ id, text, attribution, permissionUrl }) => ({ id, text, attribution, permissionUrl })),
+        excerpts: input.evidence.map(({ id, text, attribution, permissionUrl, factSection }) =>
+          ({ id, text, attribution, permissionUrl, factSection })),
       }) }],
     }],
     generationConfig: {
@@ -314,7 +340,8 @@ async function generateReport(input, key, apiFetch, signal, body) {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { throw new RequestError("invalid_model_report", 502); }
   const report = validateReport(parsed, input.evidence);
-  return { ...report, partial: input.partial || report.discarded > 0, omittedDocuments: input.omittedDocuments, model };
+  return { ...report, partial: input.partial || report.discarded > 0, omittedDocuments: input.omittedDocuments, model,
+    ...(input.publicFacts ? { publicFacts: true, converted: input.converted } : {}) };
 }
 
 async function generateDemo(key, apiFetch) {
@@ -347,11 +374,13 @@ export function createWorker(registry = approvedNotices, apiFetch = (...args) =>
       let failureCode = "internal_error";
       try {
         if (url.pathname === "/v1/approval" && request.method === "GET") {
-          const entry = lookup(registry, url.searchParams.get("notice"));
+          const notice = url.searchParams.get("notice");
+          const publicEntry = findPublicFacts(notice);
+          const entry = publicEntry ?? lookup(registry, notice);
           if (env.AI_FREE_TIER_CONFIRMED !== "true" || !env.DEMO_ACCESS_CODE || !env.GEMINI_API_KEY) {
             throw new RequestError("not_enabled", 503);
           }
-          return cors(json(publicApproval(entry)));
+          return cors(json(publicEntry ? { publicFacts: true, converted: entry.converted, report: entry.report } : publicApproval(entry)));
         }
         const modelCheck = url.pathname === "/v1/model-check";
         if ((!modelCheck && url.pathname !== "/v1/analyze") || request.method !== "POST") {
@@ -378,7 +407,14 @@ export function createWorker(registry = approvedNotices, apiFetch = (...args) =>
         } else {
           if (!request.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) throw new RequestError("invalid_input");
           if (Number(request.headers.get("Content-Length")) > maxRequestBytes) throw new RequestError("input_limit", 413);
-          input = await approvedInput(await readJson(request.body, maxRequestBytes), registry);
+          const payload = await readJson(request.body, maxRequestBytes);
+          if (hasKeys(payload, ["notice"])) {
+            const publicEntry = findPublicFacts(payload.notice);
+            if (!publicEntry) throw new RequestError("not_approved", 404);
+            input = await publicFactsInput(payload.notice, publicEntry);
+          } else {
+            input = await approvedInput(payload, registry);
+          }
         }
         failureCode = "analysis_gate_unavailable";
         const gate = env.ANALYSIS_GATE.get(env.ANALYSIS_GATE.idFromName("single-project-budget-v1"));

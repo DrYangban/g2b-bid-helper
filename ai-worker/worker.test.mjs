@@ -124,6 +124,37 @@ test("reviewed notices report the reason and sources without verified provider p
   assert.equal(calls(),0);
 });
 
+test("the museum pilot exposes a reviewed summary and only sends registered facts on generation", async (t) => {
+  t.mock.timers.enable({apis:["Date"],now:new Date("2026-11-25T20:00:00Z")});
+  const key = "R26BK01852410:000";
+  const {worker,env,post,calls} = setup((facts) => {
+    assert.equal(facts.length,12);
+    assert(facts.every(fact => Object.keys(fact).sort().join(",") === "factSection,id,text"));
+    const date = facts.find(fact => fact.factSection === "schedule");
+    assert.match(date.text,/2026-12-08 10:00/);
+    return Response.json({candidates:[{finishReason:"STOP",content:{parts:[{text:JSON.stringify({
+      sections:[{id:"schedule",items:[{type:"required",summary:date.text,basis:[{id:date.id,quote:date.text}]}]}],
+    })}]}}]});
+  },null);
+  const approval = () => worker.fetch(new Request("https://worker/v1/approval?" + new URLSearchParams({notice:key}), {
+    headers:{Origin:origin},
+  }),env);
+  const metadata = await (await approval()).json();
+  assert.equal(metadata.report.mode,"verified");
+  assert.equal(metadata.report.publicFacts,true);
+  assert.equal(metadata.converted,true);
+  assert.equal((await post({notice:key},{authorization:""})).status,401);
+  assert.equal((await post({notice:key,documents:[{id:"d1",texts}]})).status,404);
+  assert.equal(calls(),0);
+  const result = await (await post({notice:key})).json();
+  assert.equal(result.publicFacts,true);
+  assert.match(result.sections.schedule[0].basis[0].originalUrl,/fileSeq=2/);
+  assert.equal(calls(),1);
+  t.mock.timers.setTime(Date.parse("2026-12-08T01:00:00Z"));
+  assert.equal((await approval()).status,404);
+  assert.equal((await post({notice:key})).status,404);
+});
+
 test("browser redacts common contact patterns and reviewer-selected text before hashing", () => {
   const raw = "담당자: 가나다 · +82 (0)44-000-0000 · buyer @ example.test · 900101-1000000 · " +
     "기재자 나다라 · 마감은 2027-01-11이며 예산은 48,000,000원입니다.";
